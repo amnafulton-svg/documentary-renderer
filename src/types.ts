@@ -112,6 +112,8 @@ export type ArchiveScene = {
     label: string;
     prefix?: string;
     compare?: Array<{label: string; value: string; amount: number}>;
+    // seconds on screen (default 5, or 6 for a compare); capped by the scene length
+    hold?: number;
   };
   sourceImage?: string;
   sourceProvider?: string;
@@ -128,6 +130,11 @@ export type ArchiveShot = {
   at: number;
   focus: [x: number, y: number];
   zoom: [from: number, to: number];
+  /** b-roll cutaway: a different photo or footage file shown for this shot instead of the scene still */
+  image?: string;
+  video?: string;
+  /** 'contain' = small/portrait photo framed over a blurred copy of itself */
+  fit?: 'cover' | 'contain';
 };
 
 export type ArchiveCaption = {

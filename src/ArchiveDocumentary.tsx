@@ -552,6 +552,14 @@ const ArchiveSceneFrame = ({
                 : `blur(${focusBlur}px)`,
             }}
           />
+        ) : scene.image && shotIndex >= 0 && (shots[shotIndex].image || shots[shotIndex].video) ? (
+          <ShotMedia
+            shot={shots[shotIndex]}
+            from={segStart}
+            frames={segEnd - segStart}
+            transform={transform}
+            filter={showArchiveOverlay ? `${imageFilter(scene, frame)} blur(${focusBlur}px)` : `blur(${focusBlur}px)`}
+          />
         ) : scene.image ? (
           <Img
             src={staticFile(scene.image)}
@@ -653,6 +661,39 @@ const shotTransform = (shot: ArchiveShot, progress: number) => {
   const x = Math.max(-maxX, Math.min(maxX, -zoom * dx));
   const y = Math.max(-maxY, Math.min(maxY, -zoom * dy));
   return `translate(${x}px, ${y}px) scale(${zoom})`;
+};
+
+// b-roll cutaway inside a long still: another photo or a footage clip, hard-cut on a phrase boundary
+const ShotMedia = ({shot, from, frames, transform, filter}: {
+  shot: ArchiveShot;
+  from: number;
+  frames: number;
+  transform: string;
+  filter: string;
+}) => {
+  if (shot.video) {
+    return (
+      <Sequence from={from} durationInFrames={Math.max(1, frames)} layout="none">
+        <OffthreadVideo src={staticFile(shot.video)} muted style={{...styles.image, transform, filter}} />
+      </Sequence>
+    );
+  }
+  const src = staticFile(shot.image as string);
+  if (shot.fit !== 'contain') {
+    return <Img src={src} style={{...styles.image, transform, filter}} />;
+  }
+  // small or portrait source: framed print over a soft, dark copy of itself
+  return (
+    <AbsoluteFill style={{filter}}>
+      <Img src={src} style={{...styles.image, filter: 'blur(28px) brightness(0.45) saturate(0.7)', transform: 'scale(1.15)'}} />
+      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', transform}}>
+        <Img
+          src={src}
+          style={{height: 860, width: 'auto', maxWidth: 1640, objectFit: 'contain', boxShadow: '0 24px 60px rgba(0,0,0,0.65)'}}
+        />
+      </AbsoluteFill>
+    </AbsoluteFill>
+  );
 };
 
 // ---------- documentary data graphics ----------
@@ -804,7 +845,7 @@ const StatReveal = ({
 }) => {
   const {fps} = useVideoConfig();
   const compare = stat.compare?.length ? stat.compare : null;
-  const end = Math.min(durationInFrames - 2, Math.round(fps * (compare ? 6 : 5)));
+  const end = Math.min(durationInFrames - 2, Math.round(fps * (stat.hold ?? (compare ? 6 : 5))));
   if (frame > end) return null;
   const out = end - 14;
   const backdrop = interpolate(frame, [0, 12, out + 4, end], [0, 1, 1, 0], clampX);
