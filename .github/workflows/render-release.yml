@@ -172,9 +172,77 @@ jobs:
           path: out/${{ matrix.stem }}_chunk_${{ matrix.chunk_id }}.mp4
           if-no-files-found: error
 
+  render-audio:
+    name: Render soundtrack ${{ matrix.stem }}
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.videos) }}
+    steps:
+      - name: Checkout renderer
+        uses: actions/checkout@v4
+
+      - name: Download archive package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ZIP_NAME: ${{ matrix.zip_name }}
+        run: |
+          find public -mindepth 1 -maxdepth 1 ! -name fonts -exec rm -rf {} +
+          rm -rf incoming out
+          mkdir -p incoming public out
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ZIP_NAME" --dir incoming
+          unzip -o "incoming/$ZIP_NAME" -d public
+          node .github/scripts/sanitize-package.mjs public
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install renderer dependencies
+        run: npm ci
+
+      - name: Install fonts
+        run: |
+          mkdir -p ~/.local/share/fonts ~/.config/fontconfig
+          cp public/fonts/*.ttf ~/.local/share/fonts/
+          cp .github/fontconfig/fonts.conf ~/.config/fontconfig/fonts.conf
+          fc-cache -f
+          fc-match Bahnschrift; fc-match Georgia
+
+      - name: Apply optional render settings
+        env:
+          SHOW_SUBTITLES: ${{ inputs.show_subtitles }}
+          SHOW_ARCHIVE_OVERLAY: ${{ inputs.show_archive_overlay }}
+        run: |
+          node -e "const fs=require('node:fs'); const path='public/archive.json'; const data=JSON.parse(fs.readFileSync(path,'utf8')); data.renderOptions={...(data.renderOptions||{}),showSubtitles:process.env.SHOW_SUBTITLES!=='false',showArchiveOverlay:process.env.SHOW_ARCHIVE_OVERLAY!=='false'}; fs.writeFileSync(path,JSON.stringify(data,null,2)+'\n'); console.log(data.renderOptions);"
+
+      - name: Render soundtrack with Remotion
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Audio-only render: voice-over plus every SFX exactly as the composition plays them.
+          if timeout 90m npx remotion render src/index.ts ArchiveDocumentary "out/${{ matrix.stem }}_audio.m4a" --codec=aac --audio-bitrate=192k; then
+            echo "Soundtrack rendered by Remotion"
+          else
+            echo "::warning::Remotion audio render failed; falling back to mix-audio.mjs"
+            rm -f "out/${{ matrix.stem }}_audio.m4a"
+          fi
+
+      - name: Upload soundtrack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audio-${{ matrix.stem }}
+          path: out/${{ matrix.stem }}_audio.m4a
+          if-no-files-found: warn
+
   combine-videos:
     name: Combine ${{ matrix.stem }}
-    needs: [discover, render-chunks]
+    needs: [discover, render-chunks, render-audio]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -220,41 +288,12 @@ jobs:
           fi
           echo "Voice-over OK: public/$AUDIO_REL"
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download soundtrack
+        uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          node-version: 20
-          cache: npm
-
-      - name: Install renderer dependencies
-        run: npm ci
-
-      - name: Install fonts
-        run: |
-          mkdir -p ~/.local/share/fonts ~/.config/fontconfig
-          cp public/fonts/*.ttf ~/.local/share/fonts/
-          cp .github/fontconfig/fonts.conf ~/.config/fontconfig/fonts.conf
-          fc-cache -f
-          fc-match Bahnschrift; fc-match Georgia
-
-      - name: Apply optional render settings
-        env:
-          SHOW_SUBTITLES: ${{ inputs.show_subtitles }}
-          SHOW_ARCHIVE_OVERLAY: ${{ inputs.show_archive_overlay }}
-        run: |
-          node -e "const fs=require('node:fs'); const path='public/archive.json'; const data=JSON.parse(fs.readFileSync(path,'utf8')); data.renderOptions={...(data.renderOptions||{}),showSubtitles:process.env.SHOW_SUBTITLES!=='false',showArchiveOverlay:process.env.SHOW_ARCHIVE_OVERLAY!=='false'}; fs.writeFileSync(path,JSON.stringify(data,null,2)+'\n'); console.log(data.renderOptions);"
-
-      - name: Render soundtrack with Remotion
-        shell: bash
-        run: |
-          set -uo pipefail
-          # Audio-only render: voice-over plus every SFX exactly as the composition plays them.
-          if timeout 45m npx remotion render src/index.ts ArchiveDocumentary "out/${{ matrix.stem }}_audio.m4a" --codec=aac --audio-bitrate=192k; then
-            echo "Soundtrack rendered by Remotion"
-          else
-            echo "::warning::Remotion audio render failed; falling back to mix-audio.mjs"
-            rm -f "out/${{ matrix.stem }}_audio.m4a"
-          fi
+          name: audio-${{ matrix.stem }}
+          path: out
 
       - name: Stitch chunks and add audio
         shell: bash
