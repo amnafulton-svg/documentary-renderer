@@ -11,17 +11,29 @@ const sfx = data.sfx ?? {};
 const cacheDir = "audio-mix-assets";
 
 const isUrl = (src) => /^https?:\/\//i.test(src);
+// Mirrors SoundEffects in src/ArchiveDocumentary.tsx so the fast ffmpeg mix matches Studio.
 const namedSound = (name) => {
   if (name === "paper_slide") return sfx.paperSlide;
   if (name === "camera_click") return sfx.cameraClick;
+  if (name === "marker_stroke") return sfx.markerStroke;
+  if (name === "map_ping") return sfx.mapPing;
+  if (name === "typewriter") return sfx.typewriter;
   return null;
 };
 const accentSound = (accent, explicit) => {
   const planned = namedSound(explicit);
   if (planned) return planned;
   if (accent === "scan" || accent === "shutter") return sfx.cameraClick;
+  if (accent === "document_highlight") return sfx.markerStroke;
+  if (accent === "kinetic_map") return sfx.mapPing;
   if (accent === "focus" || accent === "light_leak") return sfx.paperSlide;
   return null;
+};
+const cueStart = (scene) => {
+  const start = Number(scene.start || 0);
+  const latest = Math.max(start, Number(scene.end || start) - 0.35);
+  const cue = Number(scene.visualCueStart);
+  return Number.isFinite(cue) ? Math.max(start, Math.min(latest, cue)) : start;
 };
 
 const resolveAsset = async (src) => {
@@ -56,15 +68,22 @@ const plannedEvents = [];
 if (sfx.projectorStart) {
   plannedEvents.push({src: sfx.projectorStart, start: 0, duration: 2.1, volume: 0.18});
 }
-for (const scene of (data.scenes ?? []).slice(1)) {
-  const src = accentSound(scene.accent, scene.sfx);
-  if (src) {
-    plannedEvents.push({src, start: Number(scene.start || 0), duration: 1.1, volume: 0.075});
-  }
+for (const scene of data.scenes ?? []) {
+  if (scene.graphic === "kinetic_map" && !scene.historicalMap) continue;
+  if (scene.graphic === "document_highlight" && !scene.sourceImage) continue;
+  const src = scene.sourceImage ? sfx.paperSlide : accentSound(scene.accent, scene.sfx);
+  if (!src) continue;
+  const offset = scene.graphic === "kinetic_map" ? 0.62 : scene.sourceImage ? 0.12 : 0;
+  plannedEvents.push({
+    src,
+    start: cueStart(scene) + offset,
+    duration: 1.4,
+    volume: scene.sfx === "map_ping" ? 0.13 : 0.1,
+  });
 }
 
 const events = [];
-for (const event of plannedEvents.slice(0, 80)) {
+for (const event of plannedEvents.slice(0, 200)) {
   try {
     const resolved = await resolveAsset(event.src);
     if (resolved) {

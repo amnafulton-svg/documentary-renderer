@@ -11,7 +11,7 @@ GitHub Actions renderer for the documentary-style cuts built by Archive Remotion
 3. Actions → **Render Documentary Release Zips** → Run workflow with `release_tag`.
 
 The workflow splits every video into chunks (`workers_per_video`, default 16), renders them in parallel,
-stitches them, renders the soundtrack (voice-over + SFX) with Remotion, and uploads a `final-<name>`
+stitches them, mixes the voice-over with every SFX (fast ffmpeg mix), and uploads a `final-<name>`
 artifact with the MP4 (kept 30 days).
 
 ```bash
