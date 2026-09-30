@@ -271,7 +271,7 @@ jobs:
             # Give concat each chunk's exact length (frames / fps). Letting it guess from the
             # MPEG-TS timestamps undercounts by the B-frame delay, so the next chunk overlaps
             # and the mux fails with "Non-monotonic DTS".
-            frames="$(ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "$file")"
+            frames="$(ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of default=noprint_wrappers=1:nokey=1 "$file")"
             chunk_duration="$(node -e "process.stdout.write((Number(process.argv[1])/Number(process.argv[2])).toFixed(6))" "$frames" "$fps")"
             echo "file '$(realpath "$normalized")'" >> chunk-list.txt
             echo "duration $chunk_duration" >> chunk-list.txt
