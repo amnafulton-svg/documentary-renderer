@@ -21,8 +21,8 @@ gh run download <run-id> -n final-<name>
 
 ## Notes
 
-- `src/` is a copy of `archive-remotion-factory/renderer/src`. `src/fonts.ts` registers the open-licence
-  Barlow Semi Condensed and Gelasio fonts (in `public/fonts/`, SIL OFL) under the names Bahnschrift and Georgia,
+- `src/` is a copy of `archive-remotion-factory/renderer/src`. `.github/fontconfig/fonts.conf` maps the open-licence
+  Barlow Semi Condensed and Gelasio fonts (in `public/fonts/`, SIL OFL) (installed on the runner) to Bahnschrift and Georgia,
   because Linux runners don't have those Windows fonts.
 - Map scenes (`mode: "map"`) are drawn live and don't need an image.
 - Never commit `.env` or API keys. Media only travels in release zips.

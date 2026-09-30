@@ -76,6 +76,14 @@ jobs:
       - name: Install renderer dependencies
         run: npm ci
 
+      - name: Install fonts
+        run: |
+          mkdir -p ~/.local/share/fonts ~/.config/fontconfig
+          cp public/fonts/*.ttf ~/.local/share/fonts/
+          cp .github/fontconfig/fonts.conf ~/.config/fontconfig/fonts.conf
+          fc-cache -f
+          fc-match Bahnschrift; fc-match Georgia
+
       - name: Download archive package
         env:
           GH_TOKEN: ${{ github.token }}
@@ -220,6 +228,14 @@ jobs:
 
       - name: Install renderer dependencies
         run: npm ci
+
+      - name: Install fonts
+        run: |
+          mkdir -p ~/.local/share/fonts ~/.config/fontconfig
+          cp public/fonts/*.ttf ~/.local/share/fonts/
+          cp .github/fontconfig/fonts.conf ~/.config/fontconfig/fonts.conf
+          fc-cache -f
+          fc-match Bahnschrift; fc-match Georgia
 
       - name: Apply optional render settings
         env:
