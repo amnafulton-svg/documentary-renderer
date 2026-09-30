@@ -17,6 +17,11 @@ on:
         required: true
         type: number
         default: 20
+      chunks_from_run:
+        description: "Optional: run ID whose rendered chunks to reuse (skips rendering, only stitches + mixes audio)"
+        required: false
+        type: string
+        default: ""
       show_subtitles:
         description: "Render subtitles"
         required: false
@@ -30,6 +35,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   discover:
@@ -58,6 +64,7 @@ jobs:
   render-chunks:
     name: Render ${{ matrix.stem }} chunk ${{ matrix.chunk_id }}
     needs: discover
+    if: inputs.chunks_from_run == ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -175,6 +182,7 @@ jobs:
   combine-videos:
     name: Combine ${{ matrix.stem }}
     needs: [discover, render-chunks]
+    if: always() && needs.discover.result == 'success' && (needs.render-chunks.result == 'success' || inputs.chunks_from_run != '')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -189,6 +197,8 @@ jobs:
           pattern: chunk-${{ matrix.stem }}-*
           merge-multiple: true
           path: chunks
+          run-id: ${{ inputs.chunks_from_run || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Install FFmpeg
         run: |
@@ -238,6 +248,7 @@ jobs:
             exit 1
           fi
 
+          fps="$(node -p "Number(require('./public/archive.json').fps || 30)")"
           rm -rf normalized-chunks
           mkdir -p normalized-chunks
           : > chunk-list.txt
@@ -253,7 +264,13 @@ jobs:
               -i "$file" -map 0:v:0 -an -c:v copy \
               -bsf:v h264_mp4toannexb -f mpegts "$normalized"
             test -s "$normalized"
+            # Give concat each chunk's exact length (frames / fps). Letting it guess from the
+            # MPEG-TS timestamps undercounts by the B-frame delay, so the next chunk overlaps
+            # and the mux fails with "Non-monotonic DTS".
+            frames="$(ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "$file")"
+            chunk_duration="$(node -e "process.stdout.write((Number(process.argv[1])/Number(process.argv[2])).toFixed(6))" "$frames" "$fps")"
             echo "file '$(realpath "$normalized")'" >> chunk-list.txt
+            echo "duration $chunk_duration" >> chunk-list.txt
           done
 
           ffmpeg -hide_banner -y -v error -xerror \
