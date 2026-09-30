@@ -239,6 +239,10 @@ jobs:
           expected_duration="$(node -p "Number(require('./public/archive.json').duration || 0)")"
           mapfile -t chunk_files < <(find chunks -type f -name "${{ matrix.stem }}_chunk_*.mp4" -print | sort)
 
+          if [ -n "${{ inputs.chunks_from_run }}" ]; then
+            # Reused chunks may come from a run with a different worker count; the duration checks below still guard completeness.
+            expected_chunks="${#chunk_files[@]}"
+          fi
           if [ "${#chunk_files[@]}" -ne "$expected_chunks" ]; then
             echo "::error::Expected $expected_chunks rendered chunks, but downloaded ${#chunk_files[@]}."
             exit 1
