@@ -1,0 +1,39 @@
+{
+  "name": "archive-remotion-renderer",
+  "version": "1.0.0",
+  "description": "Remotion renderer for hidden-history archive videos",
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@remotion/cli": "4.0.463",
+    "@remotion/tailwind-v4": "4.0.463",
+    "d3-geo": "^3.1.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.463",
+    "tailwindcss": "4.0.0",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.463",
+    "@types/d3-geo": "^3.1.0",
+    "@types/react": "19.2.7",
+    "@types/topojson-client": "^3.1.5",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render src/index.ts ArchiveDocumentary out/archive-documentary.mp4",
+    "render:overlay": "remotion render src/index.ts VintageOverlay out/vintage-overlay.mp4 --codec=h264 --crf=15",
+    "render:intro-flash": "remotion render src/index.ts IntroFlashOverlay out/intro-flash-with-sound.mp4 --codec=h264 --crf=15",
+    "render:upgrade-demo": "remotion render src/index.ts UpgradeShowcase out/documentary-upgrade-showcase.mp4 --codec=h264 --crf=18 --scale=0.5",
+    "render:reference-cutaway": "remotion render src/index.ts ReferenceCutaway out/reference-cutaway.mp4 --codec=h264 --crf=18",
+    "render:federal-subtitles": "remotion render src/index.ts FederalReserveSubtitlesOnly out/How_the_Federal_Reserve_subtitles_exact.webm --codec=vp9 --pixel-format=yuva420p --image-format=png --muted --public-dir=public/capcut-subtitles",
+    "lint": "tsc --noEmit"
+  }
+}

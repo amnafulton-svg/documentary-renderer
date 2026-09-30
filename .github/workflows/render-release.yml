@@ -1,0 +1,351 @@
+name: Render Documentary Release Zips
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag that contains one or more archive zip assets, for example v1"
+        required: true
+        type: string
+      workers_per_video:
+        description: "Parallel chunk workers per video"
+        required: true
+        type: number
+        default: 16
+      max_total_render_jobs:
+        description: "Maximum total render jobs to run at once"
+        required: true
+        type: number
+        default: 20
+      show_subtitles:
+        description: "Render subtitles"
+        required: false
+        type: boolean
+        default: true
+      show_archive_overlay:
+        description: "Render vintage grading, grain, scratches, vignette, accents, and archive SFX"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    name: Find release zips
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.matrices.outputs.chunks }}
+      videos: ${{ steps.matrices.outputs.videos }}
+    steps:
+      - name: Checkout renderer
+        uses: actions/checkout@v4
+
+      - name: Download release zips
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir -p incoming
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "*.zip" --dir incoming
+          ls -lh incoming
+
+      - name: Build render matrices
+        id: matrices
+        run: node .github/scripts/make-render-matrices.mjs incoming "${{ inputs.workers_per_video }}" >> "$GITHUB_OUTPUT"
+
+  render-chunks:
+    name: Render ${{ matrix.stem }} chunk ${{ matrix.chunk_id }}
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_total_render_jobs) }}
+      matrix: ${{ fromJSON(needs.discover.outputs.chunks) }}
+    steps:
+      - name: Checkout renderer
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install renderer dependencies
+        run: npm ci
+
+      - name: Download archive package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ZIP_NAME: ${{ matrix.zip_name }}
+        run: |
+          find public -mindepth 1 -maxdepth 1 ! -name fonts -exec rm -rf {} +
+          rm -rf incoming out
+          mkdir -p incoming public out
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ZIP_NAME" --dir incoming
+          unzip -o "incoming/$ZIP_NAME" -d public
+          test -f public/archive.json
+          node .github/scripts/sanitize-package.mjs public
+
+      - name: Apply optional render settings
+        env:
+          SHOW_SUBTITLES: ${{ inputs.show_subtitles }}
+          SHOW_ARCHIVE_OVERLAY: ${{ inputs.show_archive_overlay }}
+        run: |
+          node -e "const fs=require('node:fs'); const path='public/archive.json'; const data=JSON.parse(fs.readFileSync(path,'utf8')); data.renderOptions={...(data.renderOptions||{}),showSubtitles:process.env.SHOW_SUBTITLES!=='false',showArchiveOverlay:process.env.SHOW_ARCHIVE_OVERLAY!=='false'}; fs.writeFileSync(path,JSON.stringify(data,null,2)+'\n'); console.log(data.renderOptions);"
+
+      - name: Render video chunk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cores="$(nproc)"
+          if [ "$cores" -lt 2 ]; then
+            safe_concurrency="$cores"
+          else
+            safe_concurrency="2"
+          fi
+
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+
+          output="out/${{ matrix.stem }}_chunk_${{ matrix.chunk_id }}.mp4"
+          validation_ts="out/${{ matrix.stem }}_chunk_${{ matrix.chunk_id }}_validation.ts"
+          frame_range="${{ matrix.frames }}"
+          start_frame="${frame_range%-*}"
+          end_frame="${frame_range#*-}"
+          fps="$(node -p "Number(require('./public/archive.json').fps || 30)")"
+          expected_chunk_duration="$(node -e "const [s,e,f]=process.argv.slice(1).map(Number); process.stdout.write(String((e-s+1)/f))" "$start_frame" "$end_frame" "$fps")"
+          rendered=false
+
+          for attempt in 1 2 3; do
+            echo "Chunk render attempt $attempt/3"
+            rm -f "$output" "$validation_ts"
+
+            if npx remotion render src/index.ts ArchiveDocumentary "$output" \
+              --codec=h264 \
+              --muted \
+              --frames="$frame_range" \
+              --concurrency="$safe_concurrency"; then
+              actual_chunk_duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$output" || true)"
+
+              if node -e '
+                const [actualRaw, expectedRaw] = process.argv.slice(1);
+                const actual = Number(actualRaw), expected = Number(expectedRaw);
+                process.exit(Number.isFinite(actual) && Math.abs(actual - expected) <= 0.5 ? 0 : 1);
+              ' "$actual_chunk_duration" "$expected_chunk_duration" && \
+                ffmpeg -hide_banner -y -v error -xerror -err_detect explode \
+                  -i "$output" -map 0:v:0 -an -c:v copy \
+                  -bsf:v h264_mp4toannexb -f mpegts "$validation_ts"; then
+                rm -f "$validation_ts"
+                echo "Chunk validated: ${actual_chunk_duration}s / expected ${expected_chunk_duration}s"
+                rendered=true
+                break
+              fi
+            fi
+
+            echo "::warning::Chunk ${{ matrix.chunk_id }} attempt $attempt failed integrity or duration validation. Retrying."
+          done
+
+          if [ "$rendered" != true ]; then
+            echo "::error::Chunk ${{ matrix.chunk_id }} failed three render/validation attempts. No partial video will be published."
+            exit 1
+          fi
+
+      - name: Upload rendered chunk
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-${{ matrix.stem }}-${{ matrix.chunk_id }}
+          path: out/${{ matrix.stem }}_chunk_${{ matrix.chunk_id }}.mp4
+          if-no-files-found: error
+
+  combine-videos:
+    name: Combine ${{ matrix.stem }}
+    needs: [discover, render-chunks]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.videos) }}
+    steps:
+      - name: Checkout renderer
+        uses: actions/checkout@v4
+
+      - name: Download rendered chunks
+        uses: actions/download-artifact@v4
+        with:
+          pattern: chunk-${{ matrix.stem }}-*
+          merge-multiple: true
+          path: chunks
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Download archive package for audio
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ZIP_NAME: ${{ matrix.zip_name }}
+        run: |
+          find public -mindepth 1 -maxdepth 1 ! -name fonts -exec rm -rf {} +
+          rm -rf incoming out audio-mix-assets
+          mkdir -p incoming public out
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ZIP_NAME" --dir incoming
+          unzip -o "incoming/$ZIP_NAME" -d public
+          test -f public/archive.json
+          node .github/scripts/sanitize-package.mjs public
+
+          AUDIO_REL="$(node .github/scripts/audio-path.mjs)"
+          if [ -z "$AUDIO_REL" ]; then
+            echo "::error::archive.json has no audio entry (or sanitize-package.mjs removed it). The voice-over file in the zip is missing, has a bad extension, or its filename does not match archive.json. Rebuild the zip with a plain ASCII audio filename."
+            exit 1
+          fi
+          if [ ! -f "public/$AUDIO_REL" ]; then
+            echo "::error::Voice-over file not found after unzip: public/$AUDIO_REL. The filename inside the zip probably contains special characters. Rebuild the zip with a plain ASCII audio filename."
+            exit 1
+          fi
+          echo "Voice-over OK: public/$AUDIO_REL"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install renderer dependencies
+        run: npm ci
+
+      - name: Apply optional render settings
+        env:
+          SHOW_SUBTITLES: ${{ inputs.show_subtitles }}
+          SHOW_ARCHIVE_OVERLAY: ${{ inputs.show_archive_overlay }}
+        run: |
+          node -e "const fs=require('node:fs'); const path='public/archive.json'; const data=JSON.parse(fs.readFileSync(path,'utf8')); data.renderOptions={...(data.renderOptions||{}),showSubtitles:process.env.SHOW_SUBTITLES!=='false',showArchiveOverlay:process.env.SHOW_ARCHIVE_OVERLAY!=='false'}; fs.writeFileSync(path,JSON.stringify(data,null,2)+'\n'); console.log(data.renderOptions);"
+
+      - name: Render soundtrack with Remotion
+        shell: bash
+        run: |
+          set -uo pipefail
+          # Audio-only render: voice-over plus every SFX exactly as the composition plays them.
+          if timeout 45m npx remotion render src/index.ts ArchiveDocumentary "out/${{ matrix.stem }}_audio.m4a" --codec=aac --audio-bitrate=192k; then
+            echo "Soundtrack rendered by Remotion"
+          else
+            echo "::warning::Remotion audio render failed; falling back to mix-audio.mjs"
+            rm -f "out/${{ matrix.stem }}_audio.m4a"
+          fi
+
+      - name: Stitch chunks and add audio
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          expected_chunks="${{ matrix.chunk_count }}"
+          expected_duration="$(node -p "Number(require('./public/archive.json').duration || 0)")"
+          mapfile -t chunk_files < <(find chunks -type f -name "${{ matrix.stem }}_chunk_*.mp4" -print | sort)
+
+          if [ "${#chunk_files[@]}" -ne "$expected_chunks" ]; then
+            echo "::error::Expected $expected_chunks rendered chunks, but downloaded ${#chunk_files[@]}."
+            exit 1
+          fi
+          if ! node -e "const d=Number(process.argv[1]); if (!Number.isFinite(d) || d <= 0) process.exit(1)" "$expected_duration"; then
+            echo "::error::archive.json contains an invalid duration: $expected_duration"
+            exit 1
+          fi
+
+          rm -rf normalized-chunks
+          mkdir -p normalized-chunks
+          : > chunk-list.txt
+
+          # Normalize every independently rendered MP4 to MPEG-TS before concatenation.
+          # -xerror prevents FFmpeg from silently publishing a partial file when a
+          # chunk contains the h264_mp4toannexb error that previously shortened videos.
+          for file in "${chunk_files[@]}"; do
+            chunk_name="$(basename "$file" .mp4)"
+            normalized="normalized-chunks/${chunk_name}.ts"
+            echo "Validating and normalizing $file"
+            ffmpeg -hide_banner -y -v error -xerror -err_detect explode \
+              -i "$file" -map 0:v:0 -an -c:v copy \
+              -bsf:v h264_mp4toannexb -f mpegts "$normalized"
+            test -s "$normalized"
+            echo "file '$(realpath "$normalized")'" >> chunk-list.txt
+          done
+
+          ffmpeg -hide_banner -y -v error -xerror \
+            -f concat -safe 0 -i chunk-list.txt -map 0:v:0 -an -c:v copy \
+            "out/${{ matrix.stem }}_silent.mp4"
+
+          silent_duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "out/${{ matrix.stem }}_silent.mp4")"
+          node -e '
+            const [label, actualRaw, expectedRaw] = process.argv.slice(1);
+            const actual = Number(actualRaw), expected = Number(expectedRaw);
+            const difference = Math.abs(actual - expected);
+            if (!Number.isFinite(actual) || difference > 1.0) {
+              console.error(`::error::${label} duration ${actualRaw}s does not match expected ${expectedRaw}s (difference ${difference.toFixed(3)}s).`);
+              process.exit(1);
+            }
+            console.log(`${label} duration verified: ${actual.toFixed(3)}s / ${expected.toFixed(3)}s`);
+          ' "Silent video" "$silent_duration" "$expected_duration"
+
+          if [ ! -s "out/${{ matrix.stem }}_audio.m4a" ]; then
+            node .github/scripts/mix-audio.mjs "out/${{ matrix.stem }}_audio.m4a"
+          fi
+
+          if [ ! -s "out/${{ matrix.stem }}_audio.m4a" ]; then
+            echo "::error::mix-audio.mjs produced no audio file. Refusing to publish a silent video."
+            exit 1
+          fi
+
+          audio_duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "out/${{ matrix.stem }}_audio.m4a")"
+          node -e '
+            const [label, actualRaw, expectedRaw] = process.argv.slice(1);
+            const actual = Number(actualRaw), expected = Number(expectedRaw);
+            const difference = Math.abs(actual - expected);
+            if (!Number.isFinite(actual) || difference > 1.0) {
+              console.error(`::error::${label} duration ${actualRaw}s does not match expected ${expectedRaw}s (difference ${difference.toFixed(3)}s).`);
+              process.exit(1);
+            }
+            console.log(`${label} duration verified: ${actual.toFixed(3)}s / ${expected.toFixed(3)}s`);
+          ' "Mixed audio" "$audio_duration" "$expected_duration"
+
+          # Do not use -shortest: it hid broken video concatenation by trimming the
+          # complete narration to whatever partial video FFmpeg happened to produce.
+          ffmpeg -hide_banner -y -v error -xerror \
+            -i "out/${{ matrix.stem }}_silent.mp4" \
+            -i "out/${{ matrix.stem }}_audio.m4a" \
+            -map 0:v:0 -map 1:a:0 -c:v copy -c:a copy -t "$expected_duration" \
+            "out/${{ matrix.stem }}.mp4"
+
+          final_duration="$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "out/${{ matrix.stem }}.mp4")"
+          stream_types="$(ffprobe -v error -show_entries stream=codec_type -of csv=p=0 "out/${{ matrix.stem }}.mp4")"
+          if ! grep -qx 'video' <<< "$stream_types" || ! grep -qx 'audio' <<< "$stream_types"; then
+            echo "::error::Final MP4 is missing its video or audio stream. Found: $stream_types"
+            exit 1
+          fi
+          node -e '
+            const [label, actualRaw, expectedRaw] = process.argv.slice(1);
+            const actual = Number(actualRaw), expected = Number(expectedRaw);
+            const difference = Math.abs(actual - expected);
+            if (!Number.isFinite(actual) || difference > 1.0) {
+              console.error(`::error::${label} duration ${actualRaw}s does not match expected ${expectedRaw}s (difference ${difference.toFixed(3)}s).`);
+              process.exit(1);
+            }
+            console.log(`${label} duration verified: ${actual.toFixed(3)}s / ${expected.toFixed(3)}s`);
+          ' "Final MP4" "$final_duration" "$expected_duration"
+
+          # A final packet-level pass catches damaged media before artifact upload.
+          ffmpeg -hide_banner -v error -xerror -err_detect explode \
+            -i "out/${{ matrix.stem }}.mp4" -map 0:v:0 -map 0:a:0 -c copy -f null -
+
+      - name: Upload final MP4 as GitHub Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-${{ matrix.stem }}
+          path: out/${{ matrix.stem }}.mp4
+          if-no-files-found: error
+          retention-days: 30

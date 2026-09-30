@@ -1,0 +1,16 @@
+node_modules/
+out/
+incoming/
+chunks/
+normalized-chunks/
+rendered/
+audio-mix-assets/
+*.log
+.DS_Store
+.env
+.env.*
+*.zip
+# Media arrives from the release zip at render time; only fonts + placeholder json are committed.
+public/*
+!public/archive.json
+!public/fonts/
