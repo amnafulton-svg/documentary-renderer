@@ -528,9 +528,12 @@ const ArchiveSceneFrame = ({
   const segStart = shotIndex < 0 ? -lead : Math.round((shots[shotIndex].at - scene.start) * fps);
   const segEnd = shotIndex + 1 < shots.length ? Math.round((shots[shotIndex + 1].at - scene.start) * fps) : durationInFrames;
   const segProgress = interpolate(frame, [segStart, Math.max(segStart + 1, segEnd - 1)], [0, 1], {extrapolateLeft: 'clamp'});
+  const framed = !scene.video && scene.fit === 'contain';
   const transform = shotIndex >= 0
     ? shotTransform(shots[shotIndex], segProgress)
-    : imageTransform(scene, shots.length ? segProgress : progress);
+    : framed
+      ? printTransform(shots.length ? segProgress : progress)
+      : imageTransform(scene, shots.length ? segProgress : progress);
   const focusBlur = scene.index === 1
     ? interpolate(frame, [0, 14, 42], [8, 2.5, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
     : 0;
@@ -538,7 +541,8 @@ const ArchiveSceneFrame = ({
   return (
     <AbsoluteFill style={{...styles.scene, opacity: fade}}>
       <AbsoluteFill
-        style={styles.imageWrap}
+        // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
+        style={scene.video || framed ? undefined : styles.imageWrap}
       >
         {scene.video ? (
           <OffthreadVideo
@@ -546,7 +550,6 @@ const ArchiveSceneFrame = ({
             muted={scene.videoMuted ?? true}
             style={{
               ...styles.image,
-              transform,
               filter: showArchiveOverlay
                 ? `${imageFilter(scene, frame)} blur(${focusBlur}px)`
                 : `blur(${focusBlur}px)`,
@@ -558,6 +561,13 @@ const ArchiveSceneFrame = ({
             from={segStart}
             frames={segEnd - segStart}
             transform={transform}
+            filter={showArchiveOverlay ? `${imageFilter(scene, frame)} blur(${focusBlur}px)` : `blur(${focusBlur}px)`}
+          />
+        ) : scene.image && framed ? (
+          <FramedPrint
+            src={staticFile(scene.image)}
+            transform={transform}
+            aspect={scene.aspect}
             filter={showArchiveOverlay ? `${imageFilter(scene, frame)} blur(${focusBlur}px)` : `blur(${focusBlur}px)`}
           />
         ) : scene.image ? (
@@ -682,19 +692,30 @@ const ShotMedia = ({shot, from, frames, transform, filter}: {
   if (shot.fit !== 'contain') {
     return <Img src={src} style={{...styles.image, transform, filter}} />;
   }
-  // small or portrait source: framed print over a soft, dark copy of itself
+  return <FramedPrint src={src} transform={transform} filter={filter} aspect={shot.aspect} />;
+};
+
+// a real photo shown whole: framed print over a soft, dark copy of itself
+const FramedPrint = ({src, transform, filter, aspect}: {src: string; transform: string; filter: string; aspect?: number}) => {
+  // fit the print inside 1640x860 at its own shape (small photos scale up too)
+  const size = !aspect ? {height: 860, width: 'auto', maxWidth: 1640}
+    : aspect >= 1640 / 860 ? {width: 1640, height: Math.round(1640 / aspect)}
+      : {height: 860, width: Math.round(860 * aspect)};
   return (
-    <AbsoluteFill style={{filter}}>
-      <Img src={src} style={{...styles.image, filter: 'blur(28px) brightness(0.45) saturate(0.7)', transform: 'scale(1.15)'}} />
-      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', transform}}>
-        <Img
-          src={src}
-          style={{height: 860, width: 'auto', maxWidth: 1640, objectFit: 'contain', boxShadow: '0 24px 60px rgba(0,0,0,0.65)'}}
-        />
-      </AbsoluteFill>
+  <AbsoluteFill style={{filter}}>
+    <Img src={src} style={{...styles.image, filter: 'blur(28px) brightness(0.45) saturate(0.7)', transform: 'scale(1.15)'}} />
+    <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', transform}}>
+      <Img
+        src={src}
+        style={{...size, objectFit: 'contain', boxShadow: '0 24px 60px rgba(0,0,0,0.65)'}}
+      />
     </AbsoluteFill>
+  </AbsoluteFill>
   );
 };
+
+// framed prints only breathe: a slow 4% push, never a crop
+const printTransform = (progress: number) => `scale(${interpolate(progress, [0, 1], [1.0, 1.04])})`;
 
 // ---------- documentary data graphics ----------
 // One type family with the maps (condensed grotesk), gold + cream over footage that is

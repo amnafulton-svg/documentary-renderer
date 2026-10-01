@@ -104,6 +104,9 @@ export type ArchiveScene = {
   historicalMap?: HistoricalMapSpec;
   /** extra framings of the same still, hard-cut in at `at` (absolute seconds); focus is in frame % */
   shots?: ArchiveShot[];
+  // real photos render as a framed print over a soft copy of themselves instead of filling the frame
+  fit?: 'cover' | 'contain';
+  aspect?: number;
   /** chapter title card shown over the opening of this scene */
   chapter?: {number: string; title: string};
   /** full-screen statistic reveal (accent 'stat') */
@@ -135,6 +138,7 @@ export type ArchiveShot = {
   video?: string;
   /** 'contain' = small/portrait photo framed over a blurred copy of itself */
   fit?: 'cover' | 'contain';
+  aspect?: number;
 };
 
 export type ArchiveCaption = {
