@@ -23,6 +23,12 @@ export const Root = () => {
         width={1920}
         height={1080}
         defaultProps={{ data }}
+        // local stills pass each video's own archive.json as --props, so its length must come from the props
+        calculateMetadata={({ props }) => {
+          const d = (props as { data: ArchiveData }).data;
+          const f = d.fps || 30;
+          return { fps: f, durationInFrames: Math.max(1, Math.ceil((d.duration || 8) * f)) };
+        }}
       />
       <Composition
         id="ReferenceCutaway"
