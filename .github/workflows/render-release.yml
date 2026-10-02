@@ -144,6 +144,7 @@ jobs:
 
             if npx remotion render src/index.ts ArchiveDocumentary "$output" \
               --codec=h264 \
+              --crf=21 \
               --muted \
               --frames="$frame_range" \
               --concurrency="$safe_concurrency"; then
