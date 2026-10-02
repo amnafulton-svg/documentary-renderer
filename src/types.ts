@@ -109,6 +109,8 @@ export type ArchiveScene = {
   aspect?: number;
   /** chapter title card shown over the opening of this scene */
   chapter?: {number: string; title: string};
+  /** real-data motion graphic (line / columns / bars); times are seconds from the scene start */
+  chart?: ArchiveChart;
   /** full-screen statistic reveal (accent 'stat') */
   stat?: {
     value: string;
@@ -191,4 +193,44 @@ export type ArchiveData = {
     searchQuery?: string;
   }>;
   scenes: ArchiveScene[];
+};
+
+export type ChartFormat = {prefix?: string; suffix?: string; decimals?: number; axisDecimals?: number};
+
+export type ArchiveChartRow = {
+  label: string;
+  sub?: string;
+  amount: number;
+  /** second the bar lands (its spoken word) */
+  at: number;
+  text?: string;
+  highlight?: boolean;
+  /** later values the same bar steps to, each on its own word (tariff escalation) */
+  steps?: Array<{amount: number; at: number; text?: string}>;
+  /** stacked parts that add up (US + Germany + Japan + UK) */
+  segments?: Array<{label: string; amount: number; at: number}>;
+};
+
+export type ArchiveChart = {
+  type: 'line' | 'columns' | 'bars';
+  kicker?: string;
+  title: string;
+  source?: string;
+  format?: ChartFormat;
+  appear?: number;
+  until?: number;
+  x?: [number, number];
+  y?: [number, number];
+  xTicks?: number[];
+  yTicks?: number[];
+  series?: Array<{label?: string; points: [number, number][]; color?: 'gold' | 'cream'}>;
+  /** the line's head reaches x when `at` is spoken */
+  reveal?: Array<{x: number; at: number}>;
+  markers?: Array<{x: number; label: string; at?: number}>;
+  callouts?: Array<{x: number; y?: number; series?: number; text?: string; at: number; below?: boolean}>;
+  rows?: ArchiveChartRow[];
+  max?: number;
+  track?: boolean;
+  labelWidth?: number;
+  badge?: {text: string; at: number};
 };

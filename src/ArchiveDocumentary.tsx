@@ -19,6 +19,7 @@ import type {FeatureCollection, Geometry} from 'geojson';
 import type {ArchiveCaption, ArchiveData, ArchiveScene, ArchiveShot, HistoricalMapSpec, HistoricalRoute} from './types';
 import {HistoricalMap} from './HistoricalMap';
 import {DocumentaryMap} from './DocumentaryMap';
+import {ChartBackdrop, DataChart} from './DataChart';
 
 type GeoPoint = [longitude: number, latitude: number];
 
@@ -303,7 +304,8 @@ type Transition = {kind: TransitionKind; frames: number};
 
 const MAX_OVERLAP = 14; // every footage clip carries at least ~0.5s of spare tail
 
-const isMapScene = (scene: ArchiveScene) => scene.graphic === 'kinetic_map' && !scene.video && !scene.image;
+// maps and full-screen charts dissolve in and out
+const isMapScene = (scene: ArchiveScene) => (scene.graphic === 'kinetic_map' || !!scene.chart) && !scene.video && !scene.image;
 
 const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps: number): Transition => {
   if (!prev) return {kind: 'open', frames: Math.round(fps * 0.55)};
@@ -581,6 +583,8 @@ const ArchiveSceneFrame = ({
                 : `blur(${focusBlur}px)`,
             }}
           />
+        ) : scene.chart ? (
+          <ChartBackdrop frame={frame} />
         ) : scene.graphic === 'kinetic_map' ? (
           <AbsoluteFill style={{background: 'radial-gradient(ellipse at center, #2b3f43 0%, #1a2a2d 60%, #0f1719 100%)'}} />
         ) : (
@@ -630,6 +634,9 @@ const ArchiveSceneFrame = ({
               frame={visualFrame}
               durationInFrames={visualDurationInFrames}
             />
+          ) : null}
+          {scene.chart && frame >= 0 ? (
+            <DataChart chart={scene.chart} frame={frame} durationInFrames={Math.round((scene.end - scene.start) * fps)} />
           ) : null}
           {scene.index === 1 ? <IntroPrintReveal frame={frame} /> : null}
         </>
