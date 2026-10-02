@@ -55,9 +55,10 @@ if (data.audio && !validLocalAsset(String(data.audio), audioExts)) {
 }
 
 for (const scene of data.scenes) {
-  // Documentary map scenes are drawn live by the renderer and carry no image.
+  // Documentary map and data-chart scenes are drawn live by the renderer and carry no image.
   const isMapScene = scene.mode === "map" && scene.historicalMap;
-  if (isMapScene && !scene.image) {
+  const isChartScene = Boolean(scene.chart);
+  if ((isMapScene || isChartScene) && !scene.image) {
     // ok
   } else if (!validLocalAsset(String(scene.image || ""), imageExts)) {
     throw new Error(`Scene ${scene.index || "?"} has a missing or invalid image: ${scene.image || ""}`);
