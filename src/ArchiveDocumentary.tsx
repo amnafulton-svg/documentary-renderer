@@ -887,6 +887,7 @@ const StatReveal = ({
     const hi = compare[compare.length - 1];
     const ratio = hi.amount / Math.max(1, compare[0].amount);
     const ratioText = ratio >= 10 ? `${Math.round(ratio)}×` : `${ratio.toFixed(1)}×`;
+    const badgeText = stat.badge === false ? null : stat.badge ?? `${ratioText} MORE`;
     const barsDone = 10 + (compare.length - 1) * 14 + fps * 1.4;
     const callout = spring({frame: frame - barsDone, fps, config: {damping: 15, stiffness: 140, mass: 0.6}});
     const calloutOut = interpolate(frame, [out, out + 10], [1, 0], clampX);
@@ -952,18 +953,20 @@ const StatReveal = ({
               );
             })}
           </div>
-          <div
-            style={{
-              ...styles.gfxRatio,
-              display: 'inline-block',
-              marginLeft: 380,
-              marginTop: 18,
-              opacity: Math.min(1, callout) * calloutOut,
-              transform: `translateY(${interpolate(callout, [0, 1], [14, 0])}px)`,
-            }}
-          >
-            {ratioText} MORE
-          </div>
+          {badgeText ? (
+            <div
+              style={{
+                ...styles.gfxRatio,
+                display: 'inline-block',
+                marginLeft: 380,
+                marginTop: 18,
+                opacity: Math.min(1, callout) * calloutOut,
+                transform: `translateY(${interpolate(callout, [0, 1], [14, 0])}px)`,
+              }}
+            >
+              {badgeText}
+            </div>
+          ) : null}
         </div>
       </AbsoluteFill>
     );

@@ -115,6 +115,8 @@ export type ArchiveScene = {
     label: string;
     prefix?: string;
     compare?: Array<{label: string; value: string; amount: number}>;
+    // compare callout under the bars: default "N× MORE"; a string replaces it, false hides it (shares, rankings)
+    badge?: string | false;
     // seconds on screen (default 5, or 6 for a compare); capped by the scene length
     hold?: number;
   };
