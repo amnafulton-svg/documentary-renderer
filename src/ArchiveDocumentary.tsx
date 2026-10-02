@@ -20,6 +20,8 @@ import type {ArchiveCaption, ArchiveData, ArchiveScene, ArchiveShot, HistoricalM
 import {HistoricalMap} from './HistoricalMap';
 import {DocumentaryMap} from './DocumentaryMap';
 import {ChartBackdrop, DataChart} from './DataChart';
+import {ACCENT, ON_ACCENT} from './Palette';
+import {FilmGrain, GradeDefs, lookFilter, ParallaxStill, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
 
 type GeoPoint = [longitude: number, latitude: number];
 
@@ -132,7 +134,7 @@ const mapSpecFor = (scene: ArchiveScene): HistoricalMapSpec | null => {
       {label: (scene.mapFrom || '').toUpperCase(), coordinates: from, labelPosition: west ? 'left' : 'right', appearAt: 0.04},
       {label: (scene.mapTo || '').toUpperCase(), coordinates: to, labelPosition: west ? 'right' : 'left', appearAt: 0.66},
     ],
-    routes: [{id: 'route', points: [from, to], color: '#f2b441', startAt: 0.08, endAt: 0.72, vehicle}],
+    routes: [{id: 'route', points: [from, to], color: ACCENT, startAt: 0.08, endAt: 0.72, vehicle}],
   };
 };
 
@@ -364,6 +366,7 @@ export const ArchiveDocumentary = ({data}: {data: ArchiveData}) => {
 
   return (
     <AbsoluteFill style={styles.stage}>
+      {showArchiveOverlay ? <GradeDefs /> : null}
       {data.audio ? <Audio src={staticFile(data.audio)} /> : null}
       {showArchiveOverlay && enableVisualSfx ? <SoundEffects data={data} /> : null}
       {data.scenes.map((scene, i) => {
@@ -403,6 +406,7 @@ export const ArchiveDocumentary = ({data}: {data: ArchiveData}) => {
             );
           })
         : null}
+      {showArchiveOverlay ? <FilmGrain strength={0.16} /> : null}
       {showSubtitles ? <Captions captions={data.captions ?? []} /> : null}
     </AbsoluteFill>
   );
@@ -539,23 +543,24 @@ const ArchiveSceneFrame = ({
   const focusBlur = scene.index === 1
     ? interpolate(frame, [0, 14, 42], [8, 2.5, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
     : 0;
+  const look = (tone?: ArchiveScene['tone']) => (showArchiveOverlay
+    ? `${imageFilter(scene, frame, tone)} blur(${focusBlur}px)`
+    : `blur(${focusBlur}px)`);
+  const ownProgress = shots.length ? segProgress : progress;
+  const scan = framed && scene.aspect && (scene.aspect >= SCAN_WIDE || scene.aspect <= SCAN_TALL);
+  const parallax = !scene.video && scene.parallax && shotIndex < 0 ? scene.parallax : null;
 
   return (
     <AbsoluteFill style={{...styles.scene, opacity: fade}}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
-        style={scene.video || framed ? undefined : styles.imageWrap}
+        style={scene.video || framed || parallax ? undefined : styles.imageWrap}
       >
         {scene.video ? (
           <OffthreadVideo
             src={staticFile(scene.video)}
             muted={scene.videoMuted ?? true}
-            style={{
-              ...styles.image,
-              filter: showArchiveOverlay
-                ? `${imageFilter(scene, frame)} blur(${focusBlur}px)`
-                : `blur(${focusBlur}px)`,
-            }}
+            style={{...styles.image, filter: look(scene.tone)}}
           />
         ) : scene.image && shotIndex >= 0 && (shots[shotIndex].image || shots[shotIndex].video) ? (
           <ShotMedia
@@ -563,14 +568,26 @@ const ArchiveSceneFrame = ({
             from={segStart}
             frames={segEnd - segStart}
             transform={transform}
-            filter={showArchiveOverlay ? `${imageFilter(scene, frame)} blur(${focusBlur}px)` : `blur(${focusBlur}px)`}
+            progress={segProgress}
+            reverse={(scene.index + shotIndex) % 2 === 1}
+            filter={look(shots[shotIndex].tone ?? scene.tone)}
+          />
+        ) : parallax ? (
+          <ParallaxStill parallax={parallax} progress={ownProgress} filter={look(scene.tone)} />
+        ) : scene.image && scan ? (
+          <ScanPrint
+            src={staticFile(scene.image)}
+            aspect={scene.aspect as number}
+            progress={ownProgress}
+            reverse={scene.index % 2 === 1}
+            filter={look(scene.tone)}
           />
         ) : scene.image && framed ? (
           <FramedPrint
             src={staticFile(scene.image)}
             transform={transform}
             aspect={scene.aspect}
-            filter={showArchiveOverlay ? `${imageFilter(scene, frame)} blur(${focusBlur}px)` : `blur(${focusBlur}px)`}
+            filter={look(scene.tone)}
           />
         ) : scene.image ? (
           <Img
@@ -578,9 +595,7 @@ const ArchiveSceneFrame = ({
             style={{
               ...styles.image,
               transform,
-              filter: showArchiveOverlay
-                ? `${imageFilter(scene, frame)} blur(${focusBlur}px)`
-                : `blur(${focusBlur}px)`,
+              filter: look(scene.tone),
             }}
           />
         ) : scene.chart ? (
@@ -636,7 +651,12 @@ const ArchiveSceneFrame = ({
             />
           ) : null}
           {scene.chart && frame >= 0 ? (
-            <DataChart chart={scene.chart} frame={frame} durationInFrames={Math.round((scene.end - scene.start) * fps)} />
+            <DataChart
+              chart={scene.chart}
+              frame={frame}
+              durationInFrames={Math.round((scene.end - scene.start) * fps)}
+              backdrop={Boolean(scene.image || scene.video)}
+            />
           ) : null}
           {scene.index === 1 ? <IntroPrintReveal frame={frame} /> : null}
         </>
@@ -681,12 +701,14 @@ const shotTransform = (shot: ArchiveShot, progress: number) => {
 };
 
 // b-roll cutaway inside a long still: another photo or a footage clip, hard-cut on a phrase boundary
-const ShotMedia = ({shot, from, frames, transform, filter}: {
+const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse}: {
   shot: ArchiveShot;
   from: number;
   frames: number;
   transform: string;
   filter: string;
+  progress: number;
+  reverse: boolean;
 }) => {
   if (shot.video) {
     return (
@@ -698,6 +720,9 @@ const ShotMedia = ({shot, from, frames, transform, filter}: {
   const src = staticFile(shot.image as string);
   if (shot.fit !== 'contain') {
     return <Img src={src} style={{...styles.image, transform, filter}} />;
+  }
+  if (shot.aspect && (shot.aspect >= SCAN_WIDE || shot.aspect <= SCAN_TALL)) {
+    return <ScanPrint src={src} aspect={shot.aspect} progress={progress} filter={filter} reverse={reverse} />;
   }
   return <FramedPrint src={src} transform={transform} filter={filter} aspect={shot.aspect} />;
 };
@@ -728,7 +753,7 @@ const printTransform = (progress: number) => `scale(${interpolate(progress, [0, 
 // One type family with the maps (condensed grotesk), gold + cream over footage that is
 // dimmed, desaturated and softly defocused behind the graphic, never a flat black card.
 const GFX_FONT = 'Bahnschrift, "DIN Condensed", "Arial Narrow", Arial, sans-serif';
-const GOLD = '#f2b441';
+const GOLD = ACCENT;
 const CREAM = '#f4efe4';
 const clampX = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 
@@ -881,12 +906,9 @@ const StatReveal = ({
   const ruleOut = interpolate(frame, [out, out + 12], [0, 1], {...clampX, easing: Easing.in(Easing.cubic)});
   const drift = interpolate(frame, [0, end], [0, -14], clampX);
   const kicker = (
-    <div style={{display: 'flex', alignItems: 'center', gap: 18}}>
-      <div style={{width: 46, height: 3, backgroundColor: GOLD, transform: `scaleX(${rule * (1 - ruleOut)})`, transformOrigin: 'left'}} />
-      <MaskLine frame={frame} inAt={4} outAt={out} style={styles.gfxKicker}>
-        {stat.prefix ?? 'BY THE NUMBERS'}
-      </MaskLine>
-    </div>
+    <MaskLine frame={frame} inAt={4} outAt={out} style={styles.gfxKicker}>
+      {stat.prefix ?? 'BY THE NUMBERS'}
+    </MaskLine>
   );
 
   if (compare) {
@@ -942,8 +964,8 @@ const StatReveal = ({
                       height: highlight ? 30 : 22,
                       flexShrink: 0,
                       width,
-                      background: highlight ? `linear-gradient(90deg, #a77420, ${GOLD})` : 'rgba(244,239,228,0.42)',
-                      boxShadow: highlight ? '0 0 34px rgba(242,180,65,0.35)' : 'none',
+                      background: highlight ? GOLD : 'rgba(244,239,228,0.42)',
+                      boxShadow: 'none',
                     }}
                   />
                   <div
@@ -1005,10 +1027,9 @@ const StatReveal = ({
   );
 };
 
-const imageFilter = (scene: ArchiveScene, frame: number) => {
-  const flicker = Math.sin(frame * 0.39 + scene.index) * 0.018;
-  const contrast = scene.mode === 'dossier' ? 1.1 : 1.03;
-  return `sepia(0.18) saturate(0.9) contrast(${contrast}) brightness(${1 + flicker})`;
+const imageFilter = (scene: ArchiveScene, frame: number, tone?: ArchiveScene['tone']) => {
+  const flicker = scene.video ? Math.sin(frame * 0.39 + scene.index) * 0.014 : 0;
+  return lookFilter(tone, flicker);
 };
 
 const GeneratedArchiveBackdrop = ({scene, frame}: {scene: ArchiveScene; frame: number}) => {
@@ -1370,9 +1391,8 @@ const FilmDamage = ({frame, scene}: {frame: number; scene: ArchiveScene}) => {
   const dustB = (scene.index * 41 + frame * 7) % 1080;
   return (
     <AbsoluteFill style={styles.damage}>
-      <div style={{...styles.grain, opacity: 0.08 + Math.abs(Math.sin(frame * 0.47)) * 0.035}} />
-      <div style={{...styles.scratch, left: scratch, opacity: frame % 9 < 5 ? 0.22 : 0.04}} />
-      <div style={{...styles.dust, left: dustA, top: dustB, opacity: frame % 17 < 3 ? 0.38 : 0}} />
+      {scene.video ? <div style={{...styles.scratch, left: scratch, opacity: frame % 9 < 5 ? 0.22 : 0.04}} /> : null}
+      {scene.video ? <div style={{...styles.dust, left: dustA, top: dustB, opacity: frame % 17 < 3 ? 0.38 : 0}} /> : null}
       <div style={{...styles.filmGate, opacity: 0.18 + Math.sin(frame * 0.11) * 0.04}} />
     </AbsoluteFill>
   );
@@ -1833,8 +1853,8 @@ const styles: Record<string, CSSProperties> = {
   },
   gfxKicker: {
     fontFamily: GFX_FONT,
-    fontSize: 26,
-    fontWeight: 600,
+    fontSize: 30,
+    fontWeight: 700,
     letterSpacing: 7,
     color: GOLD,
     textTransform: 'uppercase',
@@ -1888,7 +1908,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 34,
     fontWeight: 700,
     letterSpacing: 3,
-    color: '#15110a',
+    color: ON_ACCENT,
     backgroundColor: GOLD,
     padding: '6px 14px 5px',
     whiteSpace: 'nowrap',
@@ -1905,8 +1925,8 @@ const styles: Record<string, CSSProperties> = {
   lowerThirdBar: {
     width: 5,
     flexShrink: 0,
-    backgroundColor: '#f2b441',
-    boxShadow: '0 0 18px rgba(242,180,65,0.45)',
+    backgroundColor: ACCENT,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
     transformOrigin: 'center bottom',
   },
   lowerThirdText: {
@@ -1960,15 +1980,19 @@ const styles: Record<string, CSSProperties> = {
     pointerEvents: 'none',
   },
   subtitle: {
-    maxWidth: 1280,
-    padding: '8px 22px 10px',
-    color: '#f4c84f',
-    fontFamily: 'Georgia, Times New Roman, serif',
+    maxWidth: 1300,
+    padding: '6px 18px 8px',
+    color: '#f4efe4',
+    fontFamily: 'Bahnschrift, "DIN Condensed", "Arial Narrow", Arial, sans-serif',
+    fontWeight: 600,
     fontSize: 44,
-    lineHeight: 1.14,
+    lineHeight: 1.18,
+    letterSpacing: 0.3,
     textAlign: 'center',
-    textShadow: '0 3px 16px rgba(0,0,0,0.94), 0 0 5px rgba(90,58,18,0.7)',
-    backgroundColor: 'rgba(3,2,1,0.28)',
+    textShadow: '0 2px 6px rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(8,8,10,0.62)',
     borderRadius: 4,
+    boxDecorationBreak: 'clone',
+    WebkitBoxDecorationBreak: 'clone',
   },
 };

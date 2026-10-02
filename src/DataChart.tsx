@@ -2,12 +2,13 @@
 // (condensed grotesk, gold + cream on a dark, slightly textured field). Every element is timed to its spoken
 // word: `at` values are seconds from the scene start (editor_pass.py resolves "@word" cues), and an element
 // finishes arriving on its word, then holds until the scene ends, so data never flashes past or lingers.
-import {AbsoluteFill, Easing, interpolate, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Easing, interpolate, Loop, OffthreadVideo, staticFile, useVideoConfig} from 'remotion';
 import type {CSSProperties} from 'react';
 import type {ArchiveChart, ChartFormat} from './types';
+import {ACCENT, accentA, ON_ACCENT} from './Palette';
 
 const FONT = 'Bahnschrift, "DIN Condensed", "Arial Narrow", Arial, sans-serif';
-const GOLD = '#f2b441';
+const GOLD = ACCENT;
 const CREAM = '#f4efe4';
 const DIM = 'rgba(244,239,228,0.5)';
 const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
@@ -28,20 +29,22 @@ export const fmt = (n: number, f: ChartFormat = {}, decimals = f.decimals ?? 0) 
 // 0 → 1 as an element arrives so that it lands at `at`
 const arrive = (t: number, at: number, dur = GROW) => interpolate(t, [at - dur, at], [0, 1], easeOut);
 
-export const ChartBackdrop = ({frame}: {frame: number}) => {
-  const drift = Math.sin(frame / 90) * 30;
+// the house data backdrop: a slowly waving grid (public/backdrops/grid.mp4, 59 s, looped) on the warm dark field
+export const GRID_VIDEO = 'backdrops/grid.mp4';
+const GRID_SECONDS = 59;
+// the grid frames the chart: full strength at the edges, fading to about a seventh over the plot so it never runs through the data
+const GRID_MASK = 'radial-gradient(ellipse 62% 58% at 50% 51%, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.15) 40%, rgba(0,0,0,1) 92%)';
+
+export const ChartBackdrop = (_: {frame: number}) => {
+  const {fps} = useVideoConfig();
   return (
     <AbsoluteFill style={{background: 'radial-gradient(ellipse 85% 75% at 45% 42%, #1d1a15 0%, #0e0d0b 62%, #060605 100%)'}}>
-      <AbsoluteFill
-        style={{
-          opacity: 0.5,
-          backgroundImage:
-            'linear-gradient(rgba(244,239,228,0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(244,239,228,0.035) 1px, transparent 1px)',
-          backgroundSize: '64px 64px',
-          backgroundPosition: `${drift}px ${drift / 2}px`,
-        }}
-      />
-      <AbsoluteFill style={{background: 'radial-gradient(circle at 78% 18%, rgba(242,180,65,0.08) 0%, rgba(0,0,0,0) 45%)'}} />
+      <AbsoluteFill style={{opacity: 0.62, mixBlendMode: 'screen', maskImage: GRID_MASK, WebkitMaskImage: GRID_MASK}}>
+        <Loop durationInFrames={Math.round(GRID_SECONDS * fps)}>
+          <OffthreadVideo src={staticFile(GRID_VIDEO)} muted style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+        </Loop>
+      </AbsoluteFill>
+      <AbsoluteFill style={{background: `radial-gradient(circle at 78% 18%, ${accentA(0.06)} 0%, rgba(0,0,0,0) 45%)`}} />
     </AbsoluteFill>
   );
 };
@@ -53,10 +56,7 @@ const Header = ({chart, t, out}: {chart: ArchiveChart; t: number; out: number}) 
   return (
     <>
       <div style={{position: 'absolute', left: 170, top: 112, opacity: out}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: 18}}>
-          <div style={{width: 46, height: 3, backgroundColor: GOLD, transform: `scaleX(${rule})`, transformOrigin: 'left'}} />
-          <div style={{...styles.kicker, opacity: rule}}>{chart.kicker ?? 'BY THE NUMBERS'}</div>
-        </div>
+        <div style={{...styles.kicker, opacity: rule}}>{chart.kicker ?? 'BY THE NUMBERS'}</div>
         <div style={{overflow: 'hidden', marginTop: 10}}>
           <div style={{...styles.title, transform: `translateY(${(1 - title) * 105}%)`}}>{chart.title}</div>
         </div>
@@ -122,12 +122,9 @@ const LineChart = ({chart, t}: {chart: ArchiveChart; t: number}) => {
       <svg width={1920} height={1080} style={{position: 'absolute', inset: 0}}>
         <defs>
           <linearGradient id="chartArea" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={GOLD} stopOpacity={0.32} />
+            <stop offset="0%" stopColor={GOLD} stopOpacity={0.2} />
             <stop offset="100%" stopColor={GOLD} stopOpacity={0} />
           </linearGradient>
-          <filter id="chartGlow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="6" />
-          </filter>
         </defs>
         {yTicks.map((v) => (
           <g key={v} opacity={axisIn}>
@@ -156,7 +153,6 @@ const LineChart = ({chart, t}: {chart: ArchiveChart; t: number}) => {
           return (
             <g key={si}>
               {primary ? <path d={`${d} L${pts[pts.length - 1][0]},${PLOT.bottom} L${pts[0][0]},${PLOT.bottom} Z`} fill="url(#chartArea)" /> : null}
-              {primary ? <path d={d} stroke={color} strokeWidth={10} fill="none" opacity={0.35} filter="url(#chartGlow)" /> : null}
               <path d={d} stroke={color} strokeWidth={primary ? 5 : 3.5} fill="none" strokeLinejoin="round" strokeLinecap="round" opacity={primary ? 1 : 0.75} />
               {t > startAt ? <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r={primary ? 9 : 6} fill={color} /> : null}
               {s.label && t > startAt ? (
@@ -195,9 +191,9 @@ const ValueTag = ({x, y, text, opacity, dim, below}: {x: number; y: number; text
       transform: `translate(-50%, ${(1 - opacity) * 12}px)`,
       opacity,
       ...styles.tag,
-      color: dim ? CREAM : '#15110a',
+      color: dim ? CREAM : ON_ACCENT,
       backgroundColor: dim ? 'rgba(6,6,5,0.6)' : GOLD,
-      border: dim ? '1px solid rgba(242,180,65,0.6)' : 'none',
+      border: dim ? `1px solid ${accentA(0.6)}` : 'none',
     }}
   >
     {text}
@@ -231,8 +227,8 @@ const ColumnChart = ({chart, t}: {chart: ArchiveChart; t: number}) => {
                 top: PLOT.bottom - h,
                 width: barW,
                 height: h,
-                background: hl ? `linear-gradient(0deg, #a77420, ${GOLD})` : 'rgba(244,239,228,0.4)',
-                boxShadow: hl ? '0 0 34px rgba(242,180,65,0.3)' : 'none',
+                background: hl ? GOLD : 'rgba(244,239,228,0.4)',
+                boxShadow: 'none',
               }}
             />
             <div style={{...styles.colValue, left: cx, top: PLOT.bottom - h - 78, opacity: grow, color: hl ? GOLD : CREAM}}>{text}</div>
@@ -288,8 +284,8 @@ const BarChart = ({chart, t}: {chart: ArchiveChart; t: number}) => {
                       top: 0,
                       bottom: 0,
                       width: (amount / max) * TRACK * grow,
-                      background: hl ? `linear-gradient(90deg, #a77420, ${GOLD})` : 'rgba(244,239,228,0.45)',
-                      boxShadow: hl ? '0 0 30px rgba(242,180,65,0.3)' : 'none',
+                      background: hl ? GOLD : 'rgba(244,239,228,0.45)',
+                      boxShadow: 'none',
                     }}
                   />
                 )}
@@ -334,7 +330,13 @@ const rowValue = (r: NonNullable<ArchiveChart['rows']>[number], t: number, forma
   return {amount, text, grow};
 };
 
-export const DataChart = ({chart, frame, durationInFrames}: {chart: ArchiveChart; frame: number; durationInFrames: number}) => {
+export const DataChart = ({chart, frame, durationInFrames, backdrop = true}: {
+  chart: ArchiveChart;
+  frame: number;
+  durationInFrames: number;
+  // false when the scene frame under the chart already shows the same backdrop (no need to decode the grid twice)
+  backdrop?: boolean;
+}) => {
   const {fps} = useVideoConfig();
   const t = frame / fps;
   const end = Math.min(durationInFrames / fps, chart.until ?? Infinity);
@@ -345,7 +347,7 @@ export const DataChart = ({chart, frame, durationInFrames}: {chart: ArchiveChart
   const body = chart.type === 'line' ? <LineChart chart={chart} t={t} /> : chart.type === 'columns' ? <ColumnChart chart={chart} t={t} /> : <BarChart chart={chart} t={t} />;
   return (
     <AbsoluteFill style={{pointerEvents: 'none', opacity: Math.min(fieldIn, chart.until !== undefined ? out : 1)}}>
-      <ChartBackdrop frame={frame} />
+      {backdrop ? <ChartBackdrop frame={frame} /> : null}
       <Header chart={chart} t={t} out={1} />
       {body}
     </AbsoluteFill>
@@ -353,12 +355,12 @@ export const DataChart = ({chart, frame, durationInFrames}: {chart: ArchiveChart
 };
 
 const styles: Record<string, CSSProperties> = {
-  kicker: {fontFamily: FONT, fontSize: 26, fontWeight: 600, letterSpacing: 7, color: GOLD, textTransform: 'uppercase'},
+  kicker: {fontFamily: FONT, fontSize: 30, fontWeight: 700, letterSpacing: 7, color: GOLD, textTransform: 'uppercase'},
   title: {fontFamily: FONT, fontSize: 56, fontWeight: 700, letterSpacing: 2, lineHeight: 1.08, color: CREAM, textTransform: 'uppercase', maxWidth: 1500},
-  source: {position: 'absolute', right: 170, top: 120, fontFamily: FONT, fontSize: 20, letterSpacing: 3, color: DIM, textAlign: 'right', maxWidth: 520},
+  source: {position: 'absolute', right: 170, top: 118, fontFamily: FONT, fontSize: 24, fontWeight: 600, letterSpacing: 3, color: 'rgba(244,239,228,0.72)', textAlign: 'right', maxWidth: 520},
   axisText: {fontFamily: FONT, fontSize: 26, letterSpacing: 1, fill: 'rgba(244,239,228,0.62)'},
   markerText: {fontFamily: FONT, fontSize: 26, fontWeight: 600, letterSpacing: 4, fill: CREAM},
-  seriesText: {fontFamily: FONT, fontSize: 26, fontWeight: 600, letterSpacing: 3},
+  seriesText: {fontFamily: FONT, fontSize: 26, fontWeight: 700, letterSpacing: 3},
   tag: {fontFamily: FONT, fontStretch: '75%', fontSize: 44, fontWeight: 700, padding: '4px 14px 2px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', boxShadow: '0 10px 30px rgba(0,0,0,0.5)'},
   colValue: {position: 'absolute', transform: 'translateX(-50%)', fontFamily: FONT, fontStretch: '75%', fontSize: 60, fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums'},
   colLabel: {position: 'absolute', transform: 'translateX(-50%)', fontFamily: FONT, fontSize: 28, fontWeight: 600, letterSpacing: 3, color: CREAM, textAlign: 'center', whiteSpace: 'nowrap', textTransform: 'uppercase'},
@@ -366,5 +368,5 @@ const styles: Record<string, CSSProperties> = {
   rowLabel: {fontFamily: FONT, fontSize: 34, fontWeight: 600, letterSpacing: 4, textTransform: 'uppercase', whiteSpace: 'nowrap'},
   rowValue: {fontFamily: FONT, fontStretch: '75%', fontSize: 68, fontWeight: 700, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums'},
   segLabel: {position: 'absolute', left: 10, top: -36, fontFamily: FONT, fontSize: 22, letterSpacing: 2, color: CREAM, whiteSpace: 'nowrap'},
-  badge: {fontFamily: FONT, fontSize: 34, fontWeight: 700, letterSpacing: 3, color: '#15110a', backgroundColor: GOLD, padding: '6px 14px 5px', whiteSpace: 'nowrap'},
+  badge: {fontFamily: FONT, fontSize: 34, fontWeight: 700, letterSpacing: 3, color: ON_ACCENT, backgroundColor: GOLD, padding: '6px 14px 5px', whiteSpace: 'nowrap'},
 };

@@ -6,9 +6,10 @@ import usAtlas from 'us-atlas/states-10m.json';
 import type {CSSProperties, ReactNode} from 'react';
 import type {FeatureCollection, Geometry} from 'geojson';
 import type {ArchiveScene, HistoricalMapSpec, HistoricalRoute, MapCoordinate} from './types';
+import {ACCENT, ROUTE_COLORS, RETIRED_GOLDS} from './Palette';
 
 // "Real documentary" map: NASA Blue Marble terrain on a tilted 3D ground plane,
-// glowing routes that draw on, upright pins with callouts, moving vehicles.
+// flat keylined routes that draw on, upright pins with callouts, moving vehicles.
 
 const MAP_WIDTH = 1920;
 const MAP_HEIGHT = 1080;
@@ -202,7 +203,9 @@ export const DocumentaryMap = ({
     const end = Math.max(start + 0.08, route.endAt ?? 0.72);
     const progress = interpolate(life, [start, end], [0, 1], {...clamp01, easing: Easing.inOut(Easing.cubic)});
     const line = polyline(sampleRoute(route));
-    const color = route.color || ['#f2b441', '#e2553f', '#5fb4e8'][index % 3];
+    // older cuts wrote the retired golds into every route; they now take the palette like uncoloured routes
+    const legacy = !route.color || RETIRED_GOLDS.includes(route.color.toLowerCase());
+    const color: string = legacy || !route.color ? ROUTE_COLORS[index % ROUTE_COLORS.length] : route.color;
     const head = pointAt(line, line.total * progress).pt;
     const behind = pointAt(line, line.total * progress - line.total * 0.02).pt;
     return {route, index, progress, line, color, head, behind};
@@ -330,9 +333,9 @@ export const DocumentaryMap = ({
                   {d ? (
                     <>
                       <path d={d} fill="none" stroke="#050607" strokeOpacity={0.5} strokeWidth={9 * u} strokeLinecap="round" strokeLinejoin="round" transform={`translate(${2 * u} ${3 * u})`} />
-                      <path d={d} fill="none" stroke={color} strokeOpacity={0.75} strokeWidth={16 * u} strokeLinecap="round" strokeLinejoin="round" filter={`url(#dm-glow-${scene.index})`} />
+                      {/* flat printed line: a thin dark keyline lifts it off the terrain, no glow or neon core */}
+                      <path d={d} fill="none" stroke="#0b0d0e" strokeOpacity={0.7} strokeWidth={(campaign ? 7 : 5) * u + 3 * u} strokeLinecap="round" strokeLinejoin="round" />
                       <path d={d} fill="none" stroke={color} strokeWidth={campaign ? 7 * u : 5 * u} strokeLinecap="round" strokeLinejoin="round" />
-                      <path d={d} fill="none" stroke="#fff8e6" strokeOpacity={0.75} strokeWidth={1.6 * u} strokeLinecap="round" strokeLinejoin="round" />
                     </>
                   ) : null}
                   {campaign && !route.vehicle && progress > 0.01 ? (
@@ -342,8 +345,7 @@ export const DocumentaryMap = ({
                   ) : null}
                   {!campaign && !route.vehicle && progress > 0.01 && progress < 1 ? (
                     <>
-                      <circle cx={head[0]} cy={head[1]} r={14 * u} fill={color} opacity={0.5} filter={`url(#dm-glow-${scene.index})`} />
-                      <circle cx={head[0]} cy={head[1]} r={5 * u} fill="#fffaf0" />
+                      <circle cx={head[0]} cy={head[1]} r={7 * u} fill={color} stroke="#0b0d0e" strokeWidth={2 * u} />
                     </>
                   ) : null}
                   {arrival > 0 ? (
@@ -413,17 +415,17 @@ export const DocumentaryMap = ({
         const delay = place.appearAt !== undefined ? Math.max(6, Math.round(place.appearAt * durationInFrames)) : 10 + i * 7;
         const pop = spring({frame: frame - delay, fps, config: {damping: 12, stiffness: 140}});
         if (place.marker === 'dot') {
-          // unlabelled cluster marker (e.g. dozens of camps): a small glowing point
+          // unlabelled cluster marker (e.g. dozens of camps): a small flat point
           return (
             <div key={`${place.label}-${i}`} style={{...styles.anchor, left: p.x, top: p.y, transform: `scale(${Math.max(0.8, Math.min(1.15, p.s)) * pop})`}}>
-              <div style={{position: 'absolute', left: -5, top: -5, width: 10, height: 10, borderRadius: '50%', background: '#f2b441', boxShadow: '0 0 10px 3px rgba(242,180,65,0.75), 0 2px 5px rgba(0,0,0,0.6)'}} />
+              <div style={{position: 'absolute', left: -5, top: -5, width: 10, height: 10, borderRadius: '50%', background: ACCENT, border: '1.5px solid #0b0d0e', boxSizing: 'border-box', boxShadow: '0 2px 4px rgba(0,0,0,0.5)'}} />
             </div>
           );
         }
         const grow = interpolate(frame, [delay + 4, delay + 14], [0, 1], {...clamp01, easing: Easing.out(Easing.cubic)});
         const wipe = interpolate(frame, [delay + 10, delay + 22], [0, 1], {...clamp01, easing: Easing.out(Easing.cubic)});
         const depth = Math.max(0.8, Math.min(1.15, p.s));
-        const accent = primary ? '#f2b441' : '#b9b3a4';
+        const accent = primary ? ACCENT : '#b9b3a4';
         const stem = primary ? 58 : 40;
         const vertical = pos === 'above' || pos === 'below';
         const box = (
@@ -485,7 +487,6 @@ export const DocumentaryMap = ({
           transform: `translateY(${interpolate(frame, [8, 26], [18, 0], {...clamp01, easing: Easing.out(Easing.cubic)})}px)`,
         }}
       >
-        <div style={{...styles.titleBar, width: interpolate(frame, [10, 30], [0, 72], clamp01)}} />
         {spec.year ? <div style={styles.titleYear}>{spec.year}</div> : null}
         <div style={styles.title}>{spec.title}</div>
         {spec.subtitle ? <div style={styles.subtitle}>{spec.subtitle}</div> : null}
@@ -608,8 +609,8 @@ const styles: Record<string, CSSProperties> = {
   },
   vehicleGlow: {position: 'absolute', left: -40, top: -40, width: 80, height: 80, borderRadius: '50%'},
   titleCard: {position: 'absolute', left: 78, top: 70, maxWidth: 900, textShadow: '0 3px 14px rgba(0,0,0,0.85)'},
-  titleBar: {height: 4, backgroundColor: '#f2b441', marginBottom: 14},
-  titleYear: {color: '#f2b441', fontFamily: FONT, fontSize: 22, fontWeight: 600, letterSpacing: 7, marginBottom: 6},
+  titleBar: {height: 4, backgroundColor: ACCENT, marginBottom: 14},
+  titleYear: {color: ACCENT, fontFamily: FONT, fontSize: 28, fontWeight: 700, letterSpacing: 7, marginBottom: 6},
   title: {color: '#f7f2e7', fontFamily: FONT, fontSize: 40, fontWeight: 700, letterSpacing: 4, lineHeight: 1.05},
   subtitle: {color: '#d9d1bf', fontFamily: FONT, fontSize: 21, letterSpacing: 1.5, marginTop: 8},
 };

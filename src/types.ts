@@ -104,9 +104,13 @@ export type ArchiveScene = {
   historicalMap?: HistoricalMapSpec;
   /** extra framings of the same still, hard-cut in at `at` (absolute seconds); focus is in frame % */
   shots?: ArchiveShot[];
+  // 2.5D hero still: foreground cut-out + painted-out background (look.py parallax)
+  parallax?: {bg: string; fg: string; origin: [number, number]};
   // real photos render as a framed print over a soft copy of themselves instead of filling the frame
   fit?: 'cover' | 'contain';
   aspect?: number;
+  // per-picture tone correction towards the house look: [brightness, contrast, saturate] (look.py)
+  tone?: [number, number, number];
   /** chapter title card shown over the opening of this scene */
   chapter?: {number: string; title: string};
   /** real-data motion graphic (line / columns / bars); times are seconds from the scene start */
@@ -143,6 +147,8 @@ export type ArchiveShot = {
   /** 'contain' = small/portrait photo framed over a blurred copy of itself */
   fit?: 'cover' | 'contain';
   aspect?: number;
+  // per-picture tone correction towards the house look: [brightness, contrast, saturate] (look.py)
+  tone?: [number, number, number];
 };
 
 export type ArchiveCaption = {
