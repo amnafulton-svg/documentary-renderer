@@ -58,7 +58,16 @@ for (const scene of data.scenes) {
   // Documentary map and data-chart scenes are drawn live by the renderer and carry no image.
   const isMapScene = scene.mode === "map" && scene.historicalMap;
   const isChartScene = Boolean(scene.chart);
-  if ((isMapScene || isChartScene) && !scene.image) {
+  // person cards draw their own prints on graph paper; every print photo must be in the package
+  const isPersonScene = Boolean(scene.person && Array.isArray(scene.person.people));
+  if (isPersonScene) {
+    for (const p of scene.person.people) {
+      if (!validLocalAsset(String(p.photo || ""), imageExts)) {
+        throw new Error(`Scene ${scene.index || "?"} person card has a missing or invalid photo: ${p.photo || ""}`);
+      }
+    }
+  }
+  if ((isMapScene || isChartScene || isPersonScene) && !scene.image) {
     // ok
   } else if (!validLocalAsset(String(scene.image || ""), imageExts)) {
     throw new Error(`Scene ${scene.index || "?"} has a missing or invalid image: ${scene.image || ""}`);
