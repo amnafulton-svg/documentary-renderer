@@ -1,6 +1,6 @@
 import archive from "../public/archive.json";
 import { Composition } from "remotion";
-import { ArchiveDocumentary } from "./ArchiveDocumentary";
+import { ArchiveDocumentary, coldOpenOffset } from "./ArchiveDocumentary";
 import { IntroFlashOverlay } from "./IntroFlashOverlay";
 import { ReferenceCutaway } from "./ReferenceCutaway";
 import { SubtitlesOnly } from "./SubtitlesOnly";
@@ -11,6 +11,8 @@ import type { ArchiveData } from "./types";
 const data = archive as ArchiveData;
 const fps = data.fps || 30;
 const durationInFrames = Math.max(1, Math.ceil((data.duration || 8) * fps));
+// the cold open plays before the film, so it lengthens only the documentary composition
+const docFrames = Math.max(1, Math.ceil(((data.duration || 8) + coldOpenOffset(data)) * fps));
 
 export const Root = () => {
   return (
@@ -18,7 +20,7 @@ export const Root = () => {
       <Composition
         id="ArchiveDocumentary"
         component={ArchiveDocumentary}
-        durationInFrames={durationInFrames}
+        durationInFrames={docFrames}
         fps={fps}
         width={1920}
         height={1080}
@@ -27,7 +29,7 @@ export const Root = () => {
         calculateMetadata={({ props }) => {
           const d = (props as { data: ArchiveData }).data;
           const f = d.fps || 30;
-          return { fps: f, durationInFrames: Math.max(1, Math.ceil((d.duration || 8) * f)) };
+          return { fps: f, durationInFrames: Math.max(1, Math.ceil(((d.duration || 8) + coldOpenOffset(d)) * f)) };
         }}
       />
       <Composition

@@ -346,7 +346,47 @@ const TransitionFx = ({transition}: {transition: Transition}) => {
   return null;
 };
 
+// seconds the cold open adds before the film proper (0 when there is none)
+export const coldOpenOffset = (data: ArchiveData) => {
+  const c = data.coldOpen;
+  return c && c.to > c.from ? c.to - c.from + (c.gap ?? 1) : 0;
+};
+
 export const ArchiveDocumentary = ({data}: {data: ArchiveData}) => {
+  const {fps} = useVideoConfig();
+  const c = data.coldOpen;
+  if (!c || !(c.to > c.from) || !data.scenes.length) return <FilmBody data={data} />;
+  // the excerpt plays with its own pictures, captions and voice, cuts to black, and the film starts from its first frame
+  const from = Math.round(c.from * fps);
+  const len = Math.round((c.to - c.from) * fps);
+  const main = Math.round(coldOpenOffset(data) * fps);
+  // the voice may ring past a scene cut: the prelude drops that next shot (and its dissolve) and is black by the cut
+  const cut = data.scenes.map((s) => s.start).find((t) => t > c.from && t < c.to && c.to - t < 0.6);
+  const dark = cut ? Math.round((cut - c.from) * fps) : len;
+  return (
+    <AbsoluteFill style={styles.stage}>
+      <Sequence durationInFrames={len} name="Cold open">
+        <Sequence from={-from}>
+          <FilmBody data={{...data, scenes: data.scenes.filter((s) => !cut || s.start < cut)}} window={[c.from, c.to]} />
+        </Sequence>
+        <ColdOpenFade len={dark} />
+      </Sequence>
+      <Sequence from={main} name="Film">
+        <FilmBody data={data} />
+      </Sequence>
+    </AbsoluteFill>
+  );
+};
+
+// short dip to black on the last words so the cut to the gap doesn't snap; black from frame `len` on
+const ColdOpenFade = ({len}: {len: number}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const o = interpolate(frame, [len - Math.round(fps * 0.35), len], [0, 1], clampX);
+  return <AbsoluteFill style={{backgroundColor: '#000', opacity: o, pointerEvents: 'none'}} />;
+};
+
+const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}) => {
   const {fps} = useVideoConfig();
   const showSubtitles = data.renderOptions?.showSubtitles ?? true;
   const showArchiveOverlay = data.renderOptions?.showArchiveOverlay ?? true;
@@ -367,8 +407,14 @@ export const ArchiveDocumentary = ({data}: {data: ArchiveData}) => {
   return (
     <AbsoluteFill style={styles.stage}>
       {showArchiveOverlay ? <GradeDefs /> : null}
-      {data.audio ? <Audio src={staticFile(data.audio)} /> : null}
-      {showArchiveOverlay && enableVisualSfx ? <SoundEffects data={data} /> : null}
+      {data.audio ? (
+        <Audio
+          src={staticFile(data.audio)}
+          // inside the cold open, ramp the voice in and out at the excerpt edges so it never clicks
+          volume={window ? (f) => interpolate(f / fps, [window[0], window[0] + 0.08, window[1] - 0.12, window[1]], [0, 1, 1, 0], clampX) : undefined}
+        />
+      ) : null}
+      {showArchiveOverlay && enableVisualSfx && !window ? <SoundEffects data={data} /> : null}
       {data.scenes.map((scene, i) => {
         const from = Math.floor(scene.start * fps);
         const durationInFrames = Math.max(1, Math.ceil((scene.end - scene.start) * fps));
@@ -407,7 +453,10 @@ export const ArchiveDocumentary = ({data}: {data: ArchiveData}) => {
           })
         : null}
       {showArchiveOverlay ? <FilmGrain strength={0.16} /> : null}
-      {showSubtitles ? <Captions captions={data.captions ?? []} /> : null}
+      {/* in the cold open, only the excerpt's own lines: the next sentence must not flash up during the fade */}
+      {showSubtitles ? (
+        <Captions captions={(data.captions ?? []).filter((c) => !window || (c.start < window[1] - 0.3 && c.end > window[0]))} />
+      ) : null}
     </AbsoluteFill>
   );
 };

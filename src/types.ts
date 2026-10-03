@@ -162,6 +162,8 @@ export type ArchiveData = {
   fps: number;
   duration: number;
   audio: string;
+  // cold open: narration seconds [from, to] play first, then `gap` seconds of black, then the film from 0
+  coldOpen?: {from: number; to: number; gap?: number};
   renderOptions?: {
     showSubtitles?: boolean;
     showArchiveOverlay?: boolean;
