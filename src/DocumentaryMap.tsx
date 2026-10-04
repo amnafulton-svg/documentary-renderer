@@ -5,7 +5,7 @@ import worldAtlas from 'world-atlas/countries-50m.json';
 import usAtlas from 'us-atlas/states-10m.json';
 import type {CSSProperties, ReactNode} from 'react';
 import type {FeatureCollection, Geometry} from 'geojson';
-import type {ArchiveScene, HistoricalMapSpec, HistoricalRoute, MapCoordinate} from './types';
+import type {ArchiveScene, HistoricalMapPlace, HistoricalMapSpec, HistoricalRoute, MapCoordinate} from './types';
 import {ACCENT, ROUTE_COLORS, RETIRED_GOLDS} from './Palette';
 
 // "Real documentary" map: NASA Blue Marble terrain on a tilted 3D ground plane,
@@ -24,7 +24,7 @@ const COUNTRY_BORDERS = mesh(worldAtlas as never, WORLD.objects.countries, (a, b
 const US = usAtlas as unknown as {objects: {states: never}};
 const STATE_BORDERS = mesh(usAtlas as never, US.objects.states, (a, b) => a !== b);
 
-const PROJECTION = geoEquirectangular()
+export const PROJECTION = geoEquirectangular()
   .scale(MAP_WIDTH / (2 * Math.PI))
   .translate([MAP_WIDTH / 2, MAP_HEIGHT / 2]);
 const PATH = geoPath(PROJECTION);
@@ -32,9 +32,9 @@ const COUNTRY_BORDER_PATH = PATH(COUNTRY_BORDERS) || '';
 const STATE_BORDER_PATH = PATH(STATE_BORDERS) || '';
 const UNITS_PER_DEGREE = MAP_WIDTH / 360;
 
-type Pt = [number, number];
+export type Pt = [number, number];
 
-const project = (coordinate: MapCoordinate): Pt => {
+export const project = (coordinate: MapCoordinate): Pt => {
   const result = PROJECTION(coordinate);
   return result ? [result[0], result[1]] : [MAP_WIDTH / 2, MAP_HEIGHT / 2];
 };
@@ -61,7 +61,7 @@ const autoCamera = (spec: HistoricalMapSpec) => {
   };
 };
 
-const cameraAt = (spec: HistoricalMapSpec, progress: number) => {
+export const cameraAt = (spec: HistoricalMapSpec, progress: number) => {
   const auto = autoCamera(spec);
   const camera = spec.camera ?? {};
   const to = camera.center ? project(camera.center) : auto.center;
@@ -80,7 +80,7 @@ const cameraAt = (spec: HistoricalMapSpec, progress: number) => {
 
 // ---------- routes ----------
 
-const sampleRoute = (route: HistoricalRoute): Pt[] => {
+export const sampleRoute = (route: HistoricalRoute): Pt[] => {
   const pts = route.points.map(project);
   if (pts.length < 2) return pts;
   const out: Pt[] = [];
@@ -121,9 +121,9 @@ const sampleRoute = (route: HistoricalRoute): Pt[] => {
   return out;
 };
 
-type Polyline = {pts: Pt[]; cum: number[]; total: number};
+export type Polyline = {pts: Pt[]; cum: number[]; total: number};
 
-const polyline = (pts: Pt[]): Polyline => {
+export const polyline = (pts: Pt[]): Polyline => {
   const cum = [0];
   for (let i = 1; i < pts.length; i++) {
     cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
@@ -131,7 +131,7 @@ const polyline = (pts: Pt[]): Polyline => {
   return {pts, cum, total: Math.max(0.0001, cum[cum.length - 1] ?? 0)};
 };
 
-const pointAt = (line: Polyline, length: number): {pt: Pt; index: number} => {
+export const pointAt = (line: Polyline, length: number): {pt: Pt; index: number} => {
   const L = Math.max(0, Math.min(line.total, length));
   for (let i = 1; i < line.pts.length; i++) {
     if (line.cum[i] >= L) {
@@ -145,9 +145,9 @@ const pointAt = (line: Polyline, length: number): {pt: Pt; index: number} => {
   return {pt: line.pts[line.pts.length - 1], index: line.pts.length};
 };
 
-const toD = (pts: Pt[]) => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(3)} ${p[1].toFixed(3)}`).join(' ');
+export const toD = (pts: Pt[]) => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(3)} ${p[1].toFixed(3)}`).join(' ');
 
-const partialD = (line: Polyline, progress: number) => {
+export const partialD = (line: Polyline, progress: number) => {
   if (progress <= 0) return '';
   const {pt, index} = pointAt(line, line.total * progress);
   return toD([...line.pts.slice(0, index), pt]);
@@ -407,74 +407,9 @@ export const DocumentaryMap = ({
         return nodes;
       })}
 
-      {(spec.places ?? []).map((place, i) => {
-        const p = toScreen(project(place.coordinates));
-        if (p.x < -200 || p.x > MAP_WIDTH + 200 || p.y < -100 || p.y > MAP_HEIGHT + 100) return null;
-        const primary = place.importance !== 'secondary';
-        const pos = place.labelPosition ?? 'above';
-        const delay = place.appearAt !== undefined ? Math.max(6, Math.round(place.appearAt * durationInFrames)) : 10 + i * 7;
-        const pop = spring({frame: frame - delay, fps, config: {damping: 12, stiffness: 140}});
-        if (place.marker === 'dot') {
-          // unlabelled cluster marker (e.g. dozens of camps): a small flat point
-          return (
-            <div key={`${place.label}-${i}`} style={{...styles.anchor, left: p.x, top: p.y, transform: `scale(${Math.max(0.8, Math.min(1.15, p.s)) * pop})`}}>
-              <div style={{position: 'absolute', left: -5, top: -5, width: 10, height: 10, borderRadius: '50%', background: ACCENT, border: '1.5px solid #0b0d0e', boxSizing: 'border-box', boxShadow: '0 2px 4px rgba(0,0,0,0.5)'}} />
-            </div>
-          );
-        }
-        const grow = interpolate(frame, [delay + 4, delay + 14], [0, 1], {...clamp01, easing: Easing.out(Easing.cubic)});
-        const wipe = interpolate(frame, [delay + 10, delay + 22], [0, 1], {...clamp01, easing: Easing.out(Easing.cubic)});
-        const depth = Math.max(0.8, Math.min(1.15, p.s));
-        const accent = primary ? ACCENT : '#b9b3a4';
-        const stem = primary ? 58 : 40;
-        const vertical = pos === 'above' || pos === 'below';
-        const box = (
-          <div
-            style={{
-              ...styles.callout,
-              ...(primary ? {} : styles.calloutSecondary),
-              borderLeftColor: accent,
-              clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)`,
-            }}
-          >
-            {place.label.toUpperCase()}
-            {place.detail && primary ? <div style={styles.calloutDetail}>{place.detail}</div> : null}
-          </div>
-        );
-        const boxPos: CSSProperties = pos === 'above'
-          ? {left: 0, bottom: stem * grow, transform: 'translateX(-50%)'}
-          : pos === 'below'
-            ? {left: 0, top: stem * grow, transform: 'translateX(-50%)'}
-            : pos === 'left'
-              ? {right: stem * grow, top: 0, transform: 'translateY(-50%)'}
-              : {left: stem * grow, top: 0, transform: 'translateY(-50%)'};
-        return (
-          <div key={`${place.label}-${i}`} style={{...styles.anchor, left: p.x, top: p.y, transform: `scale(${depth})`}}>
-            <div
-              style={{
-                position: 'absolute',
-                background: `linear-gradient(${vertical ? '0deg' : pos === 'left' ? '270deg' : '90deg'}, ${accent}, rgba(255,255,255,0.85))`,
-                ...(vertical
-                  ? {left: -1, width: 2, height: stem * grow, [pos === 'above' ? 'bottom' : 'top']: 0}
-                  : {top: -1, height: 2, width: stem * grow, [pos === 'left' ? 'right' : 'left']: 0}),
-              }}
-            />
-            <div style={{position: 'absolute', whiteSpace: 'nowrap', ...boxPos}}>{box}</div>
-            <div
-              style={{
-                ...styles.pin,
-                width: primary ? 16 : 12,
-                height: primary ? 16 : 12,
-                left: primary ? -8 : -6,
-                top: primary ? -8 : -6,
-                borderColor: accent,
-                transform: `scale(${pop})`,
-                boxShadow: `0 0 0 ${2 + ripple * 14}px ${accent}${Math.round((1 - ripple) * 90).toString(16).padStart(2, '0')}, 0 3px 8px rgba(0,0,0,0.6)`,
-              }}
-            />
-          </div>
-        );
-      })}
+      {(spec.places ?? []).map((place, i) => (
+        <PlaceMarker key={`${place.label}-${i}`} place={place} i={i} p={toScreen(project(place.coordinates))} frame={frame} durationInFrames={durationInFrames} ripple={ripple} />
+      ))}
 
       <div style={styles.haze} />
       <div style={styles.grade} />
@@ -495,7 +430,79 @@ export const DocumentaryMap = ({
   );
 };
 
-const Vehicle = ({kind, color}: {kind: string; color: string}) => {
+// an upright pin with a callout that wipes on; p is the place's screen position (flat plane or 3D flyover)
+export const PlaceMarker = ({place, i, p, frame, durationInFrames, ripple}: {
+  place: HistoricalMapPlace; i: number; p: {x: number; y: number; s: number}; frame: number; durationInFrames: number; ripple: number;
+}) => {
+  const {fps} = useVideoConfig();
+  if (p.x < -200 || p.x > MAP_WIDTH + 200 || p.y < -100 || p.y > MAP_HEIGHT + 100) return null;
+  const primary = place.importance !== 'secondary';
+  const pos = place.labelPosition ?? 'above';
+  const delay = place.appearAt !== undefined ? Math.max(6, Math.round(place.appearAt * durationInFrames)) : 10 + i * 7;
+  const pop = spring({frame: frame - delay, fps, config: {damping: 12, stiffness: 140}});
+  if (place.marker === 'dot') {
+    // unlabelled cluster marker (e.g. dozens of camps): a small flat point
+    return (
+      <div style={{...styles.anchor, left: p.x, top: p.y, transform: `scale(${Math.max(0.8, Math.min(1.15, p.s)) * pop})`}}>
+        <div style={{position: 'absolute', left: -5, top: -5, width: 10, height: 10, borderRadius: '50%', background: ACCENT, border: '1.5px solid #0b0d0e', boxSizing: 'border-box', boxShadow: '0 2px 4px rgba(0,0,0,0.5)'}} />
+      </div>
+    );
+  }
+  const grow = interpolate(frame, [delay + 4, delay + 14], [0, 1], {...clamp01, easing: Easing.out(Easing.cubic)});
+  const wipe = interpolate(frame, [delay + 10, delay + 22], [0, 1], {...clamp01, easing: Easing.out(Easing.cubic)});
+  const depth = Math.max(0.8, Math.min(1.15, p.s));
+  const accent = primary ? ACCENT : '#b9b3a4';
+  const stem = primary ? 58 : 40;
+  const vertical = pos === 'above' || pos === 'below';
+  const box = (
+    <div
+      style={{
+        ...styles.callout,
+        ...(primary ? {} : styles.calloutSecondary),
+        borderLeftColor: accent,
+        clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)`,
+      }}
+    >
+      {place.label.toUpperCase()}
+      {place.detail && primary ? <div style={styles.calloutDetail}>{place.detail}</div> : null}
+    </div>
+  );
+  const boxPos: CSSProperties = pos === 'above'
+    ? {left: 0, bottom: stem * grow, transform: 'translateX(-50%)'}
+    : pos === 'below'
+      ? {left: 0, top: stem * grow, transform: 'translateX(-50%)'}
+      : pos === 'left'
+        ? {right: stem * grow, top: 0, transform: 'translateY(-50%)'}
+        : {left: stem * grow, top: 0, transform: 'translateY(-50%)'};
+  return (
+    <div style={{...styles.anchor, left: p.x, top: p.y, transform: `scale(${depth})`}}>
+      <div
+        style={{
+          position: 'absolute',
+          background: `linear-gradient(${vertical ? '0deg' : pos === 'left' ? '270deg' : '90deg'}, ${accent}, rgba(255,255,255,0.85))`,
+          ...(vertical
+            ? {left: -1, width: 2, height: stem * grow, [pos === 'above' ? 'bottom' : 'top']: 0}
+            : {top: -1, height: 2, width: stem * grow, [pos === 'left' ? 'right' : 'left']: 0}),
+        }}
+      />
+      <div style={{position: 'absolute', whiteSpace: 'nowrap', ...boxPos}}>{box}</div>
+      <div
+        style={{
+          ...styles.pin,
+          width: primary ? 16 : 12,
+          height: primary ? 16 : 12,
+          left: primary ? -8 : -6,
+          top: primary ? -8 : -6,
+          borderColor: accent,
+          transform: `scale(${pop})`,
+          boxShadow: `0 0 0 ${2 + ripple * 14}px ${accent}${Math.round((1 - ripple) * 90).toString(16).padStart(2, '0')}, 0 3px 8px rgba(0,0,0,0.6)`,
+        }}
+      />
+    </div>
+  );
+};
+
+export const Vehicle = ({kind, color}: {kind: string; color: string}) => {
   if (kind === 'ship') {
     return (
       <g>
@@ -528,7 +535,7 @@ const Vehicle = ({kind, color}: {kind: string; color: string}) => {
   );
 };
 
-const styles: Record<string, CSSProperties> = {
+export const styles: Record<string, CSSProperties> = {
   stage: {position: 'absolute', inset: 0, overflow: 'hidden', backgroundColor: '#0c1418'},
   sky: {
     position: 'absolute',

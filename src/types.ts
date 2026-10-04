@@ -55,6 +55,9 @@ export type MapRegionLabel = {
   italic?: boolean;
 };
 
+/** a camera pose over real 3D terrain: metres above sea level, compass heading, pitch below the horizon (deg) */
+export type FlyoverCamera = {lng: number; lat: number; alt: number; heading: number; pitch: number};
+
 export type HistoricalMapSpec = {
   mode: 'territory' | 'transition' | 'campaign' | 'journey';
   style?: 'dark' | 'documentary';
@@ -77,6 +80,19 @@ export type HistoricalMapSpec = {
   routes?: HistoricalRoute[];
   portraitImage?: string;
   portraitLabel?: string;
+  /** fly over live 3D satellite terrain (FlyoverMap.tsx, MapTiler) instead of the flat NASA plane */
+  flyover?: {from: FlyoverCamera; to: FlyoverCamera; exaggeration?: number};
+};
+
+export type ArchivePersonEntry = {name: string; photo: string; at: number};
+export type ArchivePerson = {
+  /** one person, or two linked by an arrow (the second lands at its own `at`) */
+  people: ArchivePersonEntry[];
+  /** up to 3 lines beside a single person (1 under the first print for two); `highlight` turns red, finishing on `at` */
+  facts?: Array<{text: string; highlight?: string; at: number}>;
+  source?: string;
+  /** two people: label typed over the arrow, e.g. "biographer of" */
+  link?: string;
 };
 
 export type ArchiveScene = {
@@ -115,6 +131,8 @@ export type ArchiveScene = {
   chapter?: {number: string; title: string};
   /** real-data motion graphic (line / columns / bars); times are seconds from the scene start */
   chart?: ArchiveChart;
+  /** person card on graph paper (PersonCard.tsx); times are seconds from the scene start */
+  person?: ArchivePerson;
   /** full-screen statistic reveal (accent 'stat') */
   stat?: {
     value: string;

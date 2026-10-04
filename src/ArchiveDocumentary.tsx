@@ -19,7 +19,12 @@ import type {FeatureCollection, Geometry} from 'geojson';
 import type {ArchiveCaption, ArchiveData, ArchiveScene, ArchiveShot, HistoricalMapSpec, HistoricalRoute} from './types';
 import {HistoricalMap} from './HistoricalMap';
 import {DocumentaryMap} from './DocumentaryMap';
+import {FlyoverMap} from './FlyoverMap';
+
+// 3D flyovers need a MapTiler key (renderer/.env); without one the same spec draws as the flat documentary map
+const FLYOVER_KEY = Boolean(process.env.REMOTION_MAPTILER_KEY);
 import {ChartBackdrop, DataChart} from './DataChart';
+import {PersonCard} from './PersonCard';
 import {ACCENT, ON_ACCENT} from './Palette';
 import {FilmGrain, GradeDefs, lookFilter, ParallaxStill, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
 
@@ -307,7 +312,8 @@ type Transition = {kind: TransitionKind; frames: number};
 const MAX_OVERLAP = 14; // every footage clip carries at least ~0.5s of spare tail
 
 // maps and full-screen charts dissolve in and out
-const isMapScene = (scene: ArchiveScene) => (scene.graphic === 'kinetic_map' || !!scene.chart) && !scene.video && !scene.image;
+const isMapScene = (scene: ArchiveScene) =>
+  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person) && !scene.video && !scene.image;
 
 const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps: number): Transition => {
   if (!prev) return {kind: 'open', frames: Math.round(fps * 0.55)};
@@ -424,7 +430,8 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
         const lead = overlapOf(transitionIn);
         const tail = overlapOf(transitionOut);
         return (
-          <Sequence key={scene.index} from={from - lead} durationInFrames={durationInFrames + lead + tail}>
+          // premounted 2s early so Studio playback has the scene's picture loaded before its cut
+          <Sequence key={scene.index} from={from - lead} durationInFrames={durationInFrames + lead + tail} premountFor={fps * 2}>
             <ArchiveSceneFrame
               scene={scene}
               captions={data.captions ?? []}
@@ -603,7 +610,7 @@ const ArchiveSceneFrame = ({
     <AbsoluteFill style={{...styles.scene, opacity: fade}}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
-        style={scene.video || framed || parallax ? undefined : styles.imageWrap}
+        style={scene.video || framed || parallax || scene.person ? undefined : styles.imageWrap}
       >
         {scene.video ? (
           <OffthreadVideo
@@ -647,6 +654,8 @@ const ArchiveSceneFrame = ({
               filter: look(scene.tone),
             }}
           />
+        ) : scene.person ? (
+          <PersonCard person={scene.person} frame={frame} durationInFrames={durationInFrames} seed={`p${scene.index}`} />
         ) : scene.chart ? (
           <ChartBackdrop frame={frame} />
         ) : scene.graphic === 'kinetic_map' ? (
@@ -656,6 +665,8 @@ const ArchiveSceneFrame = ({
         )}
       </AbsoluteFill>
 
+      {/* cutaway pictures load with the scene, not at their cut (Studio playback showed the old picture for a beat) */}
+      {shots.map((sh, i) => (sh.image && i > shotIndex ? <img key={`pre-${i}`} src={staticFile(sh.image)} alt="" style={{display: 'none'}} /> : null))}
       {showArchiveOverlay ? (
         <>
           <AbsoluteFill style={styles.softGrade} />
@@ -675,7 +686,16 @@ const ArchiveSceneFrame = ({
               durationInFrames={visualDurationInFrames}
             />
           ) : null}
-          {showKineticMaps && mapSpec && visualFrame >= -lead ? (
+          {showKineticMaps && mapSpec?.flyover && FLYOVER_KEY && visualFrame >= -lead ? (
+            <FlyoverMap
+              scene={scene}
+              spec={mapSpec}
+              frame={visualFrame}
+              durationInFrames={visualDurationInFrames}
+              holdStart={cueFrame === 0 && lead > 0}
+              holdEnd={holdMapToCut}
+            />
+          ) : showKineticMaps && mapSpec && visualFrame >= -lead ? (
             <DocumentaryMap
               scene={scene}
               spec={mapSpec}
