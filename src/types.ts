@@ -127,6 +127,8 @@ export type ArchiveScene = {
   aspect?: number;
   // per-picture tone correction towards the house look: [brightness, contrast, saturate] (look.py)
   tone?: [number, number, number];
+  /** editor's transition into this scene: a real film burn screened over the cut (FilmBurn.tsx); n = clip 1/4/5/6/11/12/13 */
+  transition?: {kind: 'burn'; n?: number};
   /** chapter title card shown over the opening of this scene */
   chapter?: {number: string; title: string};
   /** real-data motion graphic (line / columns / bars); times are seconds from the scene start */

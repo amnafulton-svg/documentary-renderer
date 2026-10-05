@@ -25,6 +25,7 @@ import {FlyoverMap} from './FlyoverMap';
 const FLYOVER_KEY = Boolean(process.env.REMOTION_MAPTILER_KEY);
 import {ChartBackdrop, DataChart} from './DataChart';
 import {PersonCard} from './PersonCard';
+import {FilmBurnOverlay, filmBurnNumber, filmBurnTiming} from './FilmBurn';
 import {ACCENT, ON_ACCENT} from './Palette';
 import {FilmGrain, GradeDefs, lookFilter, ParallaxStill, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
 
@@ -304,10 +305,10 @@ const sceneVisualCueStart = (scene: ArchiveScene, captions: ArchiveCaption[]) =>
 
 // ---------- editing: transitions ----------
 // Chosen per cut like an editor would: dissolves between longer shots, hard cuts inside footage
-// montages and on short beats, a dip to black on time jumps, a film burn on light-leak beats, a camera flash on
-// scan/shutter beats, and longer dissolves into and out of maps.
+// montages and on short beats, a dip to black on time jumps, a real film burn where the editor marks a turn in the
+// story (scene.transition), a camera flash on scan/shutter beats, and longer dissolves into and out of maps.
 type TransitionKind = 'open' | 'dissolve' | 'cut' | 'dip' | 'burn' | 'flash';
-type Transition = {kind: TransitionKind; frames: number};
+type Transition = {kind: TransitionKind; frames: number; n?: number};
 
 const MAX_OVERLAP = 14; // every footage clip carries at least ~0.5s of spare tail
 
@@ -317,10 +318,14 @@ const isMapScene = (scene: ArchiveScene) =>
 
 const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps: number): Transition => {
   if (!prev) return {kind: 'open', frames: Math.round(fps * 0.55)};
+  // a film burn is a hard cut hidden under the clip's white-out frame
+  if (scene.transition?.kind === 'burn') {
+    const n = filmBurnNumber(scene.transition.n, scene.index);
+    return {kind: 'burn', frames: filmBurnTiming(n, fps).frames, n};
+  }
   const seconds = scene.end - scene.start;
   if (isMapScene(scene) || isMapScene(prev)) return {kind: 'dissolve', frames: 16};
   if (scene.accent === 'date_stamp' && seconds > 2.2) return {kind: 'dip', frames: 12};
-  if (scene.accent === 'light_leak') return {kind: 'burn', frames: 14};
   if (scene.accent === 'scan' || scene.accent === 'shutter') return {kind: 'flash', frames: 5};
   // footage montages and short punchy beats cut on the beat; longer reflective shots dissolve
   if (prev.video && scene.video) return {kind: 'cut', frames: 0};
@@ -329,22 +334,11 @@ const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps
 };
 
 const overlapOf = (transition?: Transition) =>
-  transition && (transition.kind === 'dissolve' || transition.kind === 'burn') ? Math.min(MAX_OVERLAP, transition.frames) : 0;
+  transition && transition.kind === 'dissolve' ? Math.min(MAX_OVERLAP, transition.frames) : 0;
 
 const TransitionFx = ({transition}: {transition: Transition}) => {
   const frame = useCurrentFrame();
   const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
-  if (transition.kind === 'burn') {
-    const T = transition.frames;
-    const heat = interpolate(frame, [0, T * 0.55, T * 1.1, T * 2], [0, 0.95, 0.55, 0], clamp);
-    const drift = interpolate(frame, [0, T * 2], [-18, 22], clamp);
-    return (
-      <AbsoluteFill style={{pointerEvents: 'none', mixBlendMode: 'screen', opacity: heat}}>
-        <AbsoluteFill style={{background: `radial-gradient(ellipse 70% 90% at ${58 + drift}% 45%, #fff4d6 0%, #ffb347 28%, #d2451e 55%, rgba(80,10,0,0) 80%)`}} />
-        <AbsoluteFill style={{background: `radial-gradient(circle at ${12 - drift / 2}% 80%, rgba(255,120,40,0.8) 0%, rgba(0,0,0,0) 45%)`}} />
-      </AbsoluteFill>
-    );
-  }
   if (transition.kind === 'flash') {
     const flash = interpolate(frame, [0, 1, 2, 6], [0, 0.85, 0.5, 0], clamp);
     return <AbsoluteFill style={{pointerEvents: 'none', backgroundColor: '#fffaf0', opacity: flash}} />;
@@ -451,9 +445,17 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
             const transition = transitions[i];
             if (transition.kind !== 'burn' && transition.kind !== 'flash') return null;
             const cut = Math.floor(scene.start * fps);
-            const pre = transition.kind === 'burn' ? Math.round(transition.frames * 0.55) : 1;
+            if (transition.kind === 'burn' && transition.n !== undefined) {
+              // starts so its first full-white frame lands on the cut; muted inside the cold open (excerpt sound only)
+              const {pre, frames} = filmBurnTiming(transition.n, fps);
+              return (
+                <Sequence key={`fx-${scene.index}`} from={cut - pre} durationInFrames={frames} name="Film burn">
+                  <FilmBurnOverlay n={transition.n} volume={window ? 0 : undefined} />
+                </Sequence>
+              );
+            }
             return (
-              <Sequence key={`fx-${scene.index}`} from={Math.max(0, cut - pre)} durationInFrames={transition.frames * 2 + 2}>
+              <Sequence key={`fx-${scene.index}`} from={Math.max(0, cut - 1)} durationInFrames={transition.frames * 2 + 2}>
                 <TransitionFx transition={transition} />
               </Sequence>
             );
@@ -506,6 +508,8 @@ const SoundEffects = ({data}: {data: ArchiveData}) => {
           : accentSound(scene.accent, scene.sfx);
         if (!file) return null;
         const cueSecond = sceneVisualCueStart(scene, data.captions ?? []);
+        // a film burn carries its own sound: no second effect on top of it
+        if (scene.transition?.kind === 'burn' && cueSecond - scene.start < 1.2) return null;
         const cueDurationFrames = Math.max(1, Math.ceil((scene.end - cueSecond) * fps));
         const cueOffset = scene.graphic === 'kinetic_map'
           ? scene.historicalMap || documentaryMap
