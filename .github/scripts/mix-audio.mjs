@@ -68,11 +68,34 @@ const plannedEvents = [];
 if (sfx.projectorStart) {
   plannedEvents.push({src: sfx.projectorStart, start: 0, duration: 2.1, volume: 0.18});
 }
+// Mirrors FILM_BURNS in src/FilmBurn.tsx: clip length and first full-white frame (25 fps source), sound gain.
+const FILM_BURNS = {
+  1: {frames: 28, peak: 10, gain: 0.26},
+  4: {frames: 29, peak: 20, gain: 1},
+  5: {frames: 26, peak: 8, gain: 0.23},
+  6: {frames: 27, peak: 12, gain: 0.64},
+  11: {frames: 22, peak: 9, gain: 1},
+  12: {frames: 25, peak: 11, gain: 1},
+  13: {frames: 25, peak: 10, gain: 0.25},
+};
+const isBurn = (scene) => scene.transition?.kind === "burn" && FILM_BURNS[scene.transition.n];
 for (const scene of data.scenes ?? []) {
+  if (isBurn(scene)) {
+    // the burn's projector sound, timed so its white flash lands on the cut (as the overlay is)
+    const burn = FILM_BURNS[scene.transition.n];
+    plannedEvents.push({
+      src: `transitions/film-transition-${String(scene.transition.n).padStart(2, "0")}.mp4`,
+      start: Math.max(0, Number(scene.start || 0) - burn.peak / 25),
+      duration: burn.frames / 25,
+      volume: 0.8 * burn.gain,
+    });
+  }
   if (scene.graphic === "kinetic_map" && !scene.historicalMap) continue;
   if (scene.graphic === "document_highlight" && !scene.sourceImage) continue;
   const src = scene.sourceImage ? sfx.paperSlide : accentSound(scene.accent, scene.sfx);
   if (!src) continue;
+  // a film burn carries its own sound: no second effect on top of it
+  if (isBurn(scene) && cueStart(scene) - Number(scene.start || 0) < 1.2) continue;
   const offset = scene.graphic === "kinetic_map" ? 0.62 : scene.sourceImage ? 0.12 : 0;
   plannedEvents.push({
     src,
@@ -126,8 +149,9 @@ events.forEach((event, index) => {
   const delay = Math.max(0, Math.round(Number(event.start || 0) * 1000));
   const clipDuration = Math.max(0.05, Number(event.duration || 1));
   const volume = Math.max(0, Number(event.volume || 0.08));
+  // aformat: the burn clips' audio may not match the voice's layout or rate
   filters.push(
-    `[${inputIndex}:a]atrim=0:${clipDuration},asetpts=PTS-STARTPTS,volume=${volume},adelay=${delay}|${delay}[${label}]`,
+    `[${inputIndex}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${clipDuration},asetpts=PTS-STARTPTS,volume=${volume},adelay=${delay}|${delay}[${label}]`,
   );
   mixLabels.push(`[${label}]`);
 });
