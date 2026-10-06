@@ -95,6 +95,12 @@ export type ArchivePerson = {
   link?: string;
 };
 
+export type ArchiveDossierPerson = {name: string; photo: string; at: number; /** red X drawn over it at this time */ cross?: number};
+export type ArchiveDossier =
+  | {kind: 'title'; photo: string; title: string; at: number; subtitle?: string; subtitleAt?: number; side?: 'left' | 'right'}
+  | {kind: 'lineup'; people: ArchiveDossierPerson[]; returnAt?: number; heroSwap?: {photo: string; at: number}}
+  | {kind: 'list'; title: string; at: number; items: Array<{text: string; at: number}>};
+
 export type ArchiveScene = {
   index: number;
   text: string;
@@ -135,6 +141,8 @@ export type ArchiveScene = {
   chart?: ArchiveChart;
   /** person card on graph paper (PersonCard.tsx); times are seconds from the scene start */
   person?: ArchivePerson;
+  /** dossier card: charcoal, halftone portraits, crimson title bar (Dossier.tsx); times are seconds from the scene start */
+  dossier?: ArchiveDossier;
   /** full-screen statistic reveal (accent 'stat') */
   stat?: {
     value: string;

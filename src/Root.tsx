@@ -6,6 +6,7 @@ import { ReferenceCutaway } from "./ReferenceCutaway";
 import { SubtitlesOnly } from "./SubtitlesOnly";
 import { VintageOverlay } from "./VintageOverlay";
 import { UpgradeShowcase } from "./UpgradeShowcase";
+import { DOSSIER_SHOWCASE_FRAMES, DossierShowcase } from "./DossierShowcase";
 import type { ArchiveData } from "./types";
 
 const data = archive as ArchiveData;
@@ -76,6 +77,14 @@ export const Root = () => {
         id="UpgradeShowcase"
         component={UpgradeShowcase}
         durationInFrames={24 * 30}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="DossierShowcase"
+        component={DossierShowcase}
+        durationInFrames={DOSSIER_SHOWCASE_FRAMES}
         fps={30}
         width={1920}
         height={1080}

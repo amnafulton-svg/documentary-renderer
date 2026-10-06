@@ -25,6 +25,7 @@ import {FlyoverMap} from './FlyoverMap';
 const FLYOVER_KEY = Boolean(process.env.REMOTION_MAPTILER_KEY);
 import {ChartBackdrop, DataChart} from './DataChart';
 import {PersonCard} from './PersonCard';
+import {DossierCard} from './Dossier';
 import {FilmBurnOverlay, filmBurnNumber, filmBurnTiming} from './FilmBurn';
 import {ACCENT, ON_ACCENT} from './Palette';
 import {FilmGrain, GradeDefs, lookFilter, ParallaxStill, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
@@ -314,7 +315,7 @@ const MAX_OVERLAP = 14; // every footage clip carries at least ~0.5s of spare ta
 
 // maps and full-screen charts dissolve in and out
 const isMapScene = (scene: ArchiveScene) =>
-  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person) && !scene.video && !scene.image;
+  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person || !!scene.dossier) && !scene.video && !scene.image;
 
 const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps: number): Transition => {
   if (!prev) return {kind: 'open', frames: Math.round(fps * 0.55)};
@@ -614,7 +615,7 @@ const ArchiveSceneFrame = ({
     <AbsoluteFill style={{...styles.scene, opacity: fade}}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
-        style={scene.video || framed || parallax || scene.person ? undefined : styles.imageWrap}
+        style={scene.video || framed || parallax || scene.person || scene.dossier ? undefined : styles.imageWrap}
       >
         {scene.video ? (
           <OffthreadVideo
@@ -658,6 +659,8 @@ const ArchiveSceneFrame = ({
               filter: look(scene.tone),
             }}
           />
+        ) : scene.dossier ? (
+          <DossierCard dossier={scene.dossier} frame={frame} durationInFrames={durationInFrames} seed={`d${scene.index}`} />
         ) : scene.person ? (
           <PersonCard person={scene.person} frame={frame} durationInFrames={durationInFrames} seed={`p${scene.index}`} />
         ) : scene.chart ? (
