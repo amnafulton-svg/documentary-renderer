@@ -28,7 +28,8 @@ import {PersonCard} from './PersonCard';
 import {DossierCard} from './Dossier';
 import {FilmBurnOverlay, filmBurnNumber, filmBurnTiming} from './FilmBurn';
 import {ACCENT, ON_ACCENT} from './Palette';
-import {FilmGrain, GradeDefs, lookFilter, ParallaxStill, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
+import {CRTDocumentaryLook} from './CRTDocumentaryLook';
+import {FilmGrain, GradeDefs, lookFilter, PaperBackdrop, ParallaxStill, printEnter, PrintFace, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
 
 type GeoPoint = [longitude: number, latitude: number];
 
@@ -394,6 +395,9 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
   const showDocumentHighlights = data.renderOptions?.showDocumentHighlights ?? true;
   const showKineticMaps = data.renderOptions?.showKineticMaps ?? true;
   const enableVisualSfx = data.renderOptions?.enableVisualSfx ?? true;
+  const crt: CrtMode = showArchiveOverlay ? data.renderOptions?.crt ?? 'off' : 'off';
+  // crt 'all' replaces the house film look (grade, grain, vignette, film damage) with the CRT look everywhere
+  const houseLook = showArchiveOverlay && crt !== 'all';
   const transitions = data.scenes.map((scene, i) => transitionInto(data.scenes[i - 1], scene, fps));
 
   if (!data.scenes.length) {
@@ -415,7 +419,7 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
           volume={window ? (f) => interpolate(f / fps, [window[0], window[0] + 0.08, window[1] - 0.12, window[1]], [0, 1, 1, 0], clampX) : undefined}
         />
       ) : null}
-      {showArchiveOverlay && enableVisualSfx && !window ? <SoundEffects data={data} /> : null}
+      {showArchiveOverlay && enableVisualSfx && !window ? <SoundEffects data={data} transitions={transitions} /> : null}
       {data.scenes.map((scene, i) => {
         const from = Math.floor(scene.start * fps);
         const durationInFrames = Math.max(1, Math.ceil((scene.end - scene.start) * fps));
@@ -437,6 +441,8 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
               showArchiveOverlay={showArchiveOverlay}
               showDocumentHighlights={showDocumentHighlights}
               showKineticMaps={showKineticMaps}
+              crt={crt}
+              crtIntensity={data.renderOptions?.crtIntensity ?? CRT_INTENSITY}
             />
           </Sequence>
         );
@@ -462,7 +468,7 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
             );
           })
         : null}
-      {showArchiveOverlay ? <FilmGrain strength={0.16} /> : null}
+      {houseLook ? <FilmGrain strength={0.16} /> : null}
       {/* in the cold open, only the excerpt's own lines: the next sentence must not flash up during the fade */}
       {showSubtitles ? (
         <Captions captions={(data.captions ?? []).filter((c) => !window || (c.start < window[1] - 0.3 && c.end > window[0]))} />
@@ -471,9 +477,26 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
   );
 };
 
-const SoundEffects = ({data}: {data: ArchiveData}) => {
+const SoundEffects = ({data, transitions}: {data: ArchiveData; transitions: Transition[]}) => {
   const {fps} = useVideoConfig();
   const sfx = data.sfx ?? {};
+  // a paper slide under every print that slides onto the graph paper (scene prints and print cutaways),
+  // timed to the moment the print starts moving in
+  const printSlides: {key: string; frame: number}[] = [];
+  if (sfx.paperSlide) {
+    data.scenes.forEach((scene, i) => {
+      if (scene.video || !scene.image) return;
+      const coveredAtStart = (scene.shots ?? []).some((shot) => shot.at <= scene.start + 0.05);
+      if (scene.fit === 'contain' && !scene.parallax && !coveredAtStart && transitions[i]?.kind !== 'burn') {
+        printSlides.push({key: `slide-${scene.index}`, frame: Math.floor(scene.start * fps) - overlapOf(transitions[i])});
+      }
+      (scene.shots ?? []).forEach((shot, k) => {
+        if (shot.image && !shot.video && shot.fit === 'contain') {
+          printSlides.push({key: `slide-${scene.index}-${k}`, frame: Math.floor(scene.start * fps) + Math.round((shot.at - scene.start) * fps)});
+        }
+      });
+    });
+  }
   const namedSound = (name?: string) => {
     if (name === 'paper_slide') return sfx.paperSlide;
     if (name === 'camera_click') return sfx.cameraClick;
@@ -499,6 +522,11 @@ const SoundEffects = ({data}: {data: ArchiveData}) => {
           <Audio src={resolveAudioSrc(sfx.projectorStart)} volume={0.18} />
         </Sequence>
       ) : null}
+      {printSlides.map((slide) => (
+        <Sequence key={slide.key} from={Math.max(0, slide.frame)} durationInFrames={Math.round(fps * 1.2)}>
+          <Audio src={resolveAudioSrc(sfx.paperSlide as string)} volume={0.22} />
+        </Sequence>
+      ))}
       {data.scenes.map((scene) => {
         const documentaryMap = mapSpecFor(scene);
         const routeData = scene.graphic === 'kinetic_map' && !scene.historicalMap && !documentaryMap ? mapRoute(scene) : null;
@@ -549,6 +577,8 @@ const ArchiveSceneFrame = ({
   showArchiveOverlay,
   showDocumentHighlights,
   showKineticMaps,
+  crt = 'off',
+  crtIntensity = CRT_INTENSITY,
 }: {
   scene: ArchiveScene;
   captions: ArchiveCaption[];
@@ -559,6 +589,8 @@ const ArchiveSceneFrame = ({
   showArchiveOverlay: boolean;
   showDocumentHighlights: boolean;
   showKineticMaps: boolean;
+  crt?: CrtMode;
+  crtIntensity?: number;
 }) => {
   // frame 0 is the cut point; negative frames are the dissolve starting under the previous shot
   const frame = useCurrentFrame() - lead;
@@ -604,15 +636,28 @@ const ArchiveSceneFrame = ({
   const focusBlur = scene.index === 1
     ? interpolate(frame, [0, 14, 42], [8, 2.5, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
     : 0;
-  const look = (tone?: ArchiveScene['tone']) => (showArchiveOverlay
+  const look = (tone?: ArchiveScene['tone']) => (showArchiveOverlay && crt !== 'all'
     ? `${imageFilter(scene, frame, tone)} blur(${focusBlur}px)`
     : `blur(${focusBlur}px)`);
   const ownProgress = shots.length ? segProgress : progress;
   const scan = framed && scene.aspect && (scene.aspect >= SCAN_WIDE || scene.aspect <= SCAN_TALL);
   const parallax = !scene.video && scene.parallax && shotIndex < 0 ? scene.parallax : null;
+  // CRT: 'film' = archive footage only (a clip scene or a footage cutaway); 'all' = every picture (film, real
+  // photos, AI images) in place of the house look. Maps, person and dossier cards and charts stay clean.
+  const onFilm = Boolean(scene.video || (shotIndex >= 0 && shots[shotIndex].video));
+  const onPicture = Boolean(scene.video || scene.image) && !scene.person && !scene.dossier && !scene.chart;
+  const crtOn = crt === 'all' ? onPicture : crt === 'film' && onFilm;
+  // a print on paper takes the CRT on the photo only, so the white paper stays clean
+  const onPrint = shotIndex >= 0
+    ? Boolean(shots[shotIndex].image && !shots[shotIndex].video && shots[shotIndex].fit === 'contain')
+    : Boolean(!scene.video && !parallax && framed && scene.image);
+  const printCrt = crtOn && onPrint ? crtIntensity : null;
+  // every print slides in from its own side (top, bottom, left, right in turn)
+  const enter = onPrint ? printEnter(scene.index + shotIndex + 1, frame - segStart, fps) : undefined;
 
   return (
     <AbsoluteFill style={{...styles.scene, opacity: fade}}>
+      <CrtWrap on={crtOn && !onPrint} intensity={crtIntensity}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
         style={scene.video || framed || parallax || scene.person || scene.dossier ? undefined : styles.imageWrap}
@@ -632,6 +677,8 @@ const ArchiveSceneFrame = ({
             progress={segProgress}
             reverse={(scene.index + shotIndex) % 2 === 1}
             filter={look(shots[shotIndex].tone ?? scene.tone)}
+            crt={printCrt}
+            enter={enter}
           />
         ) : parallax ? (
           <ParallaxStill parallax={parallax} progress={ownProgress} filter={look(scene.tone)} />
@@ -642,6 +689,8 @@ const ArchiveSceneFrame = ({
             progress={ownProgress}
             reverse={scene.index % 2 === 1}
             filter={look(scene.tone)}
+            crt={printCrt}
+            enter={enter}
           />
         ) : scene.image && framed ? (
           <FramedPrint
@@ -649,6 +698,8 @@ const ArchiveSceneFrame = ({
             transform={transform}
             aspect={scene.aspect}
             filter={look(scene.tone)}
+            crt={printCrt}
+            enter={enter}
           />
         ) : scene.image ? (
           <Img
@@ -671,14 +722,15 @@ const ArchiveSceneFrame = ({
           <GeneratedArchiveBackdrop scene={scene} frame={frame} />
         )}
       </AbsoluteFill>
+      </CrtWrap>
 
       {/* cutaway pictures load with the scene, not at their cut (Studio playback showed the old picture for a beat) */}
       {shots.map((sh, i) => (sh.image && i > shotIndex ? <img key={`pre-${i}`} src={staticFile(sh.image)} alt="" style={{display: 'none'}} /> : null))}
       {showArchiveOverlay ? (
         <>
-          <AbsoluteFill style={styles.softGrade} />
-          <AbsoluteFill style={styles.vignette} />
-          <FilmDamage frame={frame} scene={scene} />
+          {crt === 'all' ? null : <AbsoluteFill style={styles.softGrade} />}
+          {crtOn ? null : <AbsoluteFill style={styles.vignette} />}
+          {crt === 'all' ? null : <FilmDamage frame={frame} scene={scene} />}
           {visualIsActive ? (
             <MomentAccent
               scene={scene}
@@ -741,6 +793,12 @@ const ArchiveSceneFrame = ({
   );
 };
 
+// CRT television look (CRTDocumentaryLook kit) around a scene's picture; captions and graphics sit outside it
+type CrtMode = 'off' | 'film' | 'all';
+const CRT_INTENSITY = 0.58;
+const CrtWrap = ({on, intensity, children}: {on: boolean; intensity: number; children: React.ReactNode}) =>
+  on ? <CRTDocumentaryLook intensity={intensity}>{children}</CRTDocumentaryLook> : <>{children}</>;
+
 const imageTransform = (scene: ArchiveScene, progress: number) => {
   const motion = scene.motion || (scene.index % 2 === 1 ? 'push' : 'pull');
   const isZoomIn = ['push', 'slow_push', 'scanner'].includes(motion);
@@ -777,7 +835,9 @@ const shotTransform = (shot: ArchiveShot, progress: number) => {
 };
 
 // b-roll cutaway inside a long still: another photo or a footage clip, hard-cut on a phrase boundary
-const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse}: {
+const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse, crt, enter}: {
+  crt?: number | null;
+  enter?: string;
   shot: ArchiveShot;
   from: number;
   frames: number;
@@ -798,25 +858,22 @@ const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse}: {
     return <Img src={src} style={{...styles.image, transform, filter}} />;
   }
   if (shot.aspect && (shot.aspect >= SCAN_WIDE || shot.aspect <= SCAN_TALL)) {
-    return <ScanPrint src={src} aspect={shot.aspect} progress={progress} filter={filter} reverse={reverse} />;
+    return <ScanPrint src={src} aspect={shot.aspect} progress={progress} filter={filter} reverse={reverse} crt={crt} enter={enter} />;
   }
-  return <FramedPrint src={src} transform={transform} filter={filter} aspect={shot.aspect} />;
+  return <FramedPrint src={src} transform={transform} filter={filter} aspect={shot.aspect} crt={crt} enter={enter} />;
 };
 
-// a real photo shown whole: framed print over a soft, dark copy of itself
-const FramedPrint = ({src, transform, filter, aspect}: {src: string; transform: string; filter: string; aspect?: number}) => {
+// a real photo shown whole: a print with rounded corners on white graph paper (Look.tsx PrintFace, PaperBackdrop)
+const FramedPrint = ({src, transform, filter, aspect, crt, enter}: {src: string; transform: string; filter: string; aspect?: number; crt?: number | null; enter?: string}) => {
   // fit the print inside 1640x860 at its own shape (small photos scale up too)
-  const size = !aspect ? {height: 860, width: 'auto', maxWidth: 1640}
+  const size = !aspect ? {height: 860, width: 1290}
     : aspect >= 1640 / 860 ? {width: 1640, height: Math.round(1640 / aspect)}
       : {height: 860, width: Math.round(860 * aspect)};
   return (
-  <AbsoluteFill style={{filter}}>
-    <Img src={src} style={{...styles.image, filter: 'blur(28px) brightness(0.45) saturate(0.7)', transform: 'scale(1.15)'}} />
-    <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', transform}}>
-      <Img
-        src={src}
-        style={{...size, objectFit: 'contain', boxShadow: '0 24px 60px rgba(0,0,0,0.65)'}}
-      />
+  <AbsoluteFill>
+    <PaperBackdrop />
+    <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', transform: enter ? `${enter} ${transform}` : transform}}>
+      <PrintFace src={src} width={size.width} height={size.height} filter={filter} crt={crt} />
     </AbsoluteFill>
   </AbsoluteFill>
   );

@@ -1,5 +1,7 @@
-import {AbsoluteFill, Img, interpolate, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, Img, interpolate, Loop, OffthreadVideo, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
 import {useLayoutEffect, useRef} from 'react';
+import type {CSSProperties} from 'react';
+import {CRTDocumentaryLook} from './CRTDocumentaryLook';
 
 // ---------- one look for the whole film ----------
 // Modern colour photos, 1950s film, engravings and AI paintings sit side by side in these videos. Three layers make
@@ -128,12 +130,16 @@ export const ScanPrint = ({
   progress,
   filter,
   reverse,
+  crt,
+  enter,
 }: {
   src: string;
   aspect: number;
   progress: number;
   filter: string;
   reverse?: boolean;
+  crt?: number | null;
+  enter?: string;
 }) => {
   useVideoConfig();
   const {w, h, axis, travel} = scanSize(aspect);
@@ -143,13 +149,68 @@ export const ScanPrint = ({
   const offset = (reverse ? 1 - eased : eased) * travel - travel / 2;
   const move = axis === 'x' ? `translateX(${-offset}px)` : `translateY(${-offset}px)`;
   return (
-    <AbsoluteFill style={{filter}}>
-      <Img src={src} style={{position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
-        filter: 'blur(28px) brightness(0.45) saturate(0.7)', transform: 'scale(1.15)'}} />
-      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
-        <Img src={src} style={{width: w, height: h, maxWidth: 'none', flexShrink: 0, transform: move,
-          boxShadow: '0 24px 60px rgba(0,0,0,0.65)'}} />
+    <AbsoluteFill>
+      <PaperBackdrop />
+      <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', transform: enter}}>
+        <PrintFace src={src} width={w} height={h} filter={filter} crt={crt} style={{transform: move}} />
       </AbsoluteFill>
     </AbsoluteFill>
+  );
+};
+
+// ---------- photos as prints on white graph paper ----------
+// the producer's look: a real photo with rounded corners and a soft drop shadow, lying on white graph paper whose
+// grid slowly waves (public/backdrops/paper.mp4, 59 s, looped)
+export const PAPER_VIDEO = 'backdrops/paper.mp4';
+
+// each print slides onto the paper from off-screen, landing in the centre. The direction rotates
+// top, bottom, left, right from one print to the next (key = scene index + cutaway number).
+const SLIDE_FROM = [[0, -1], [0, 1], [-1, 0], [1, 0]] as const;
+export const printEnter = (key: number, framesIn: number, fps: number) => {
+  const t = interpolate(framesIn, [0, Math.round(fps * 0.75)], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const left = Math.pow(1 - t, 3); // ease-out cubic: fast in, gentle landing
+  const [dx, dy] = SLIDE_FROM[((key % 4) + 4) % 4];
+  return `translate(${dx * 1500 * left}px, ${dy * 1150 * left}px)`;
+};
+const PAPER_SECONDS = 59;
+
+export const PaperBackdrop = () => {
+  const {fps} = useVideoConfig();
+  return (
+    <AbsoluteFill style={{backgroundColor: '#f7f7f5'}}>
+      <Loop durationInFrames={Math.round(PAPER_SECONDS * fps)}>
+        <OffthreadVideo src={staticFile(PAPER_VIDEO)} muted style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+      </Loop>
+    </AbsoluteFill>
+  );
+};
+
+/** the print itself: rounded corners and a soft shadow on the paper; the CRT look (when on) covers the photo only */
+export const PrintFace = ({src, width, height, filter, crt, style}: {
+  src: string;
+  width: number;
+  height: number;
+  filter: string;
+  crt?: number | null;
+  style?: CSSProperties;
+}) => {
+  const radius = Math.round(Math.min(width, height) * 0.035);
+  const photo = <Img src={src} style={{width: '100%', height: '100%', objectFit: 'cover', display: 'block', filter}} />;
+  return (
+    <div
+      style={{
+        position: 'relative',
+        width,
+        height,
+        maxWidth: 'none',
+        flexShrink: 0,
+        borderRadius: radius,
+        overflow: 'hidden',
+        boxShadow: '10px 14px 22px rgba(0,0,0,0.32), 3px 4px 7px rgba(0,0,0,0.22)',
+        ...style,
+      }}
+    >
+      {crt ? <CRTDocumentaryLook intensity={crt}>{photo}</CRTDocumentaryLook> : photo}
+    </div>
   );
 };
