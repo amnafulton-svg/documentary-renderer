@@ -105,8 +105,46 @@ for (const scene of data.scenes ?? []) {
   });
 }
 
+// Mirrors printSlides in SoundEffects (src/ArchiveDocumentary.tsx): a paper slide under every real-photo print that
+// slides onto the graph paper (scene prints and print cutaways), timed to the moment the print starts moving in.
+const fps = Number(data.fps || 30);
+const MAX_OVERLAP = 14;
+const isMapScene = (scene) =>
+  (scene.graphic === "kinetic_map" || !!scene.chart || !!scene.person || !!scene.dossier) && !scene.video && !scene.image;
+// frames the scene's dissolve-in starts before scene.start (transitionInto + overlapOf in the renderer)
+const overlapInto = (prev, scene) => {
+  if (!prev || scene.transition?.kind === "burn") return 0;
+  const seconds = scene.end - scene.start;
+  if (isMapScene(scene) || isMapScene(prev)) return Math.min(MAX_OVERLAP, 16);
+  if (scene.accent === "date_stamp" && seconds > 2.2) return 0;
+  if (scene.accent === "scan" || scene.accent === "shutter") return 0;
+  if (prev.video && scene.video) return 0;
+  if (seconds < 4.5) return 0;
+  return Math.min(MAX_OVERLAP, 12);
+};
+if (sfx.paperSlide) {
+  const scenes = data.scenes ?? [];
+  scenes.forEach((scene, i) => {
+    const startFrame = Math.floor(Number(scene.start || 0) * fps);
+    const shots = scene.shots ?? [];
+    if (!scene.video && scene.image) {
+      const coveredAtStart = shots.some((shot) => shot.at <= scene.start + 0.05);
+      if (scene.fit === "contain" && !scene.parallax && !coveredAtStart && scene.transition?.kind !== "burn") {
+        const frame = Math.max(0, startFrame - overlapInto(scenes[i - 1], scene));
+        plannedEvents.push({src: sfx.paperSlide, start: frame / fps, duration: 1.2, volume: 0.22});
+      }
+    }
+    for (const shot of shots) {
+      if (shot.image && !shot.video && shot.fit === "contain") {
+        const frame = startFrame + Math.round((shot.at - scene.start) * fps);
+        plannedEvents.push({src: sfx.paperSlide, start: frame / fps, duration: 1.2, volume: 0.22});
+      }
+    }
+  });
+}
+
 const events = [];
-for (const event of plannedEvents.slice(0, 200)) {
+for (const event of plannedEvents) {
   try {
     const resolved = await resolveAsset(event.src);
     if (resolved) {
@@ -137,21 +175,29 @@ if (events.length === 0) {
 }
 
 const args = ["-y", "-i", voice];
-for (const event of events) {
-  args.push("-i", event.resolved);
+const files = [...new Set(events.map((event) => event.resolved))];
+for (const file of files) {
+  args.push("-i", file);
 }
 
 const filters = ["[0:a]volume=1[a0]"];
 const mixLabels = ["[a0]"];
+const taps = new Map();
+files.forEach((file, f) => {
+  const users = events.filter((event) => event.resolved === file).length;
+  const outs = Array.from({length: users}, (_, k) => `f${f}_${k}`);
+  filters.push(`[${f + 1}:a]asplit=${users}${outs.map((o) => `[${o}]`).join("")}`);
+  taps.set(file, outs);
+});
 events.forEach((event, index) => {
-  const inputIndex = index + 1;
+  const tap = taps.get(event.resolved).shift();
   const label = `s${index}`;
   const delay = Math.max(0, Math.round(Number(event.start || 0) * 1000));
   const clipDuration = Math.max(0.05, Number(event.duration || 1));
   const volume = Math.max(0, Number(event.volume || 0.08));
   // aformat: the burn clips' audio may not match the voice's layout or rate
   filters.push(
-    `[${inputIndex}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${clipDuration},asetpts=PTS-STARTPTS,volume=${volume},adelay=${delay}|${delay}[${label}]`,
+    `[${tap}]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${clipDuration},asetpts=PTS-STARTPTS,volume=${volume},adelay=${delay}|${delay}[${label}]`,
   );
   mixLabels.push(`[${label}]`);
 });
