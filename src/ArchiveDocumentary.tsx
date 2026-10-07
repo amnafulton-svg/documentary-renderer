@@ -443,6 +443,7 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
               showKineticMaps={showKineticMaps}
               crt={crt}
               crtIntensity={data.renderOptions?.crtIntensity ?? CRT_INTENSITY}
+              filmGate={data.renderOptions?.filmGate ?? true}
             />
           </Sequence>
         );
@@ -579,6 +580,7 @@ const ArchiveSceneFrame = ({
   showKineticMaps,
   crt = 'off',
   crtIntensity = CRT_INTENSITY,
+  filmGate = true,
 }: {
   scene: ArchiveScene;
   captions: ArchiveCaption[];
@@ -591,6 +593,7 @@ const ArchiveSceneFrame = ({
   showKineticMaps: boolean;
   crt?: CrtMode;
   crtIntensity?: number;
+  filmGate?: boolean;
 }) => {
   // frame 0 is the cut point; negative frames are the dissolve starting under the previous shot
   const frame = useCurrentFrame() - lead;
@@ -663,11 +666,13 @@ const ArchiveSceneFrame = ({
         style={scene.video || framed || parallax || scene.person || scene.dossier ? undefined : styles.imageWrap}
       >
         {scene.video ? (
-          <OffthreadVideo
-            src={staticFile(scene.video)}
-            muted={scene.videoMuted ?? true}
-            style={{...styles.image, filter: look(scene.tone)}}
-          />
+          <FilmGate on={filmGate}>
+            <OffthreadVideo
+              src={staticFile(scene.video)}
+              muted={scene.videoMuted ?? true}
+              style={{...styles.image, filter: look(scene.tone)}}
+            />
+          </FilmGate>
         ) : scene.image && shotIndex >= 0 && (shots[shotIndex].image || shots[shotIndex].video) ? (
           <ShotMedia
             shot={shots[shotIndex]}
@@ -679,6 +684,7 @@ const ArchiveSceneFrame = ({
             filter={look(shots[shotIndex].tone ?? scene.tone)}
             crt={printCrt}
             enter={enter}
+            gate={filmGate}
           />
         ) : parallax ? (
           <ParallaxStill parallax={parallax} progress={ownProgress} filter={look(scene.tone)} />
@@ -793,6 +799,27 @@ const ArchiveSceneFrame = ({
   );
 };
 
+// projector gate (producer's look, 2026-10-07): every footage clip plays inside one fixed 4:3 frame with rounded
+// corners, soft dark edges and black around it. Clips are 1920x1080 with 4:3 film centred (frame: pad), so the
+// film fills the gate exactly; a 16:9 clip shows its centre. renderOptions.filmGate: false turns it off.
+const GATE = {width: 1400, height: 1060, radius: 64};
+const FilmGate = ({on, children}: {on: boolean; children: React.ReactNode}) => {
+  if (!on) return <>{children}</>;
+  return (
+    <AbsoluteFill style={{background: '#000'}}>
+      <div style={{position: 'absolute', left: (1920 - GATE.width) / 2, top: (1080 - GATE.height) / 2, width: GATE.width,
+        height: GATE.height, borderRadius: GATE.radius, overflow: 'hidden', background: '#000'}}>
+        <div style={{position: 'absolute', left: -(1920 - GATE.width) / 2, top: -(1080 - GATE.height) / 2, width: 1920, height: 1080}}>
+          {children}
+        </div>
+        <div style={{position: 'absolute', inset: 0, borderRadius: GATE.radius,
+          boxShadow: 'inset 0 0 70px 26px rgba(0,0,0,0.92), inset 0 0 18px 6px rgba(0,0,0,0.95)',
+          background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 58%, rgba(0,0,0,0.38) 100%)'}} />
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 // CRT television look (CRTDocumentaryLook kit) around a scene's picture; captions and graphics sit outside it
 type CrtMode = 'off' | 'film' | 'all';
 const CRT_INTENSITY = 0.58;
@@ -835,8 +862,9 @@ const shotTransform = (shot: ArchiveShot, progress: number) => {
 };
 
 // b-roll cutaway inside a long still: another photo or a footage clip, hard-cut on a phrase boundary
-const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse, crt, enter}: {
+const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse, crt, enter, gate}: {
   crt?: number | null;
+  gate?: boolean;
   enter?: string;
   shot: ArchiveShot;
   from: number;
@@ -849,7 +877,9 @@ const ShotMedia = ({shot, from, frames, transform, filter, progress, reverse, cr
   if (shot.video) {
     return (
       <Sequence from={from} durationInFrames={Math.max(1, frames)} layout="none">
-        <OffthreadVideo src={staticFile(shot.video)} muted style={{...styles.image, transform, filter}} />
+        <FilmGate on={Boolean(gate)}>
+          <OffthreadVideo src={staticFile(shot.video)} muted style={{...styles.image, transform, filter}} />
+        </FilmGate>
       </Sequence>
     );
   }

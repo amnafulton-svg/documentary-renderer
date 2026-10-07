@@ -200,6 +200,7 @@ export type ArchiveData = {
     enableVisualSfx?: boolean;
     // CRT television look: 'film' = archive footage only, 'all' = every picture (CRTDocumentaryLook.tsx)
     crt?: 'off' | 'film' | 'all';
+    filmGate?: boolean;
     crtIntensity?: number; // 0..1, default 0.58
   };
   captions?: ArchiveCaption[];
