@@ -31,14 +31,13 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 export const CRTDocumentaryLook = ({
   children,
   intensity = 0.58,
-  scanlineOpacity = 0.4,
-  grainOpacity = 0.06,
-  vignetteStrength = 0.78,
+  scanlineOpacity = 0.3,
+  grainOpacity = 0.075,
+  vignetteStrength = 0.62,
   monochrome = 0.55,
   warmTint = 0,
-  // v2 (2026-10-07, user: "too bright, looks low quality"): thinner fringe, fainter ghost, no blur, darker
-  fringe = 3,
-  ghost = 0.08,
+  fringe = 7,
+  ghost = 0.22,
   style,
 }: CRTDocumentaryLookProps) => {
   const frame = useCurrentFrame();
@@ -98,10 +97,11 @@ export const CRTDocumentaryLook = ({
             transform: `translate(${jitterX}px, ${jitterY}px) scale(1.018)`,
             filter: [
               `url(#${signalId})`,
-              `brightness(${flicker * (1 - amount * 0.1)})`,
-              `contrast(${1 + amount * 0.18})`,
+              `brightness(${flicker * (1 + amount * 0.06)})`,
+              `contrast(${1 + amount * 0.38})`,
               `saturate(${1 - clamp01(monochrome) * amount * 0.7})`,
               `sepia(${clamp01(warmTint) * amount})`,
+              `blur(${amount * 0.7}px)`,
             ].join(" "),
           }}
         >
@@ -130,7 +130,7 @@ export const CRTDocumentaryLook = ({
           style={{
             backgroundImage:
               "repeating-linear-gradient(90deg, rgba(255,40,40,0.28) 0px, rgba(255,40,40,0.28) 1px, rgba(40,255,115,0.18) 1px, rgba(40,255,115,0.18) 2px, rgba(70,120,255,0.24) 2px, rgba(70,120,255,0.24) 3px)",
-            opacity: 0.03 * amount,
+            opacity: 0.055 * amount,
             mixBlendMode: "screen",
           }}
         />
@@ -170,7 +170,7 @@ export const CRTDocumentaryLook = ({
             background:
               "linear-gradient(180deg, transparent, rgba(215,235,218,0.05), transparent)",
             filter: "blur(12px)",
-            opacity: amount * 0.35,
+            opacity: amount * 0.65,
             mixBlendMode: "screen",
           }}
         />
