@@ -26,6 +26,7 @@ const FLYOVER_KEY = Boolean(process.env.REMOTION_MAPTILER_KEY);
 import {ChartBackdrop, DataChart} from './DataChart';
 import {PersonCard} from './PersonCard';
 import {DossierCard} from './Dossier';
+import {DocumentCard} from './DocumentCard';
 import {FilmBurnOverlay, filmBurnNumber, filmBurnTiming} from './FilmBurn';
 import {ACCENT, ON_ACCENT} from './Palette';
 import {CRTDocumentaryLook} from './CRTDocumentaryLook';
@@ -316,7 +317,7 @@ const MAX_OVERLAP = 14; // every footage clip carries at least ~0.5s of spare ta
 
 // maps and full-screen charts dissolve in and out
 const isMapScene = (scene: ArchiveScene) =>
-  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person || !!scene.dossier) && !scene.video && !scene.image;
+  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person || !!scene.dossier || !!scene.document) && !scene.video && !scene.image;
 
 const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps: number): Transition => {
   if (!prev) return {kind: 'open', frames: Math.round(fps * 0.55)};
@@ -648,7 +649,7 @@ const ArchiveSceneFrame = ({
   // CRT: 'film' = archive footage only (a clip scene or a footage cutaway); 'all' = every picture (film, real
   // photos, AI images) in place of the house look. Maps, person and dossier cards and charts stay clean.
   const onFilm = Boolean(scene.video || (shotIndex >= 0 && shots[shotIndex].video));
-  const onPicture = Boolean(scene.video || scene.image) && !scene.person && !scene.dossier && !scene.chart;
+  const onPicture = Boolean(scene.video || scene.image) && !scene.person && !scene.dossier && !scene.document && !scene.chart;
   const crtOn = crt === 'all' ? onPicture : crt === 'film' && onFilm;
   // a print on paper takes the CRT on the photo only, so the white paper stays clean
   const onPrint = shotIndex >= 0
@@ -663,7 +664,7 @@ const ArchiveSceneFrame = ({
       <CrtWrap on={crtOn && !onPrint} intensity={crtIntensity}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
-        style={scene.video || framed || parallax || scene.person || scene.dossier ? undefined : styles.imageWrap}
+        style={scene.video || framed || parallax || scene.person || scene.dossier || scene.document ? undefined : styles.imageWrap}
       >
         {scene.video ? (
           <FilmGate on={filmGate}>
@@ -716,6 +717,8 @@ const ArchiveSceneFrame = ({
               filter: look(scene.tone),
             }}
           />
+        ) : scene.document ? (
+          <DocumentCard doc={scene.document} frame={frame} durationInFrames={durationInFrames} seed={`doc${scene.index}`} />
         ) : scene.dossier ? (
           <DossierCard dossier={scene.dossier} frame={frame} durationInFrames={durationInFrames} seed={`d${scene.index}`} />
         ) : scene.person ? (

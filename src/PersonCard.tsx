@@ -15,7 +15,7 @@ const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 
 type Box = {x: number; y: number; w: number; h: number};
 
-const GridPaper = ({frame, duration, seed}: {frame: number; duration: number; seed: string}) => {
+export const GridPaper = ({frame, duration, seed}: {frame: number; duration: number; seed: string}) => {
   const t = frame / Math.max(1, duration);
   const dx = interpolate(t, [0, 1], [-14, 14]);
   const dy = interpolate(t, [0, 1], [-8, 8]);

@@ -95,6 +95,25 @@ export type ArchivePerson = {
   link?: string;
 };
 
+/** one highlighted passage: rects [x, y, w, h] as fractions of the scan (one per printed line); the mark starts on
+ * `at` (seconds from the scene start) and a highlight sweeps until `until` when given */
+export type ArchiveDocumentMark = {
+  rects: Array<[number, number, number, number]>;
+  at: number;
+  until?: number;
+  style?: 'highlight' | 'underline' | 'circle';
+};
+export type ArchiveDocument = {
+  /** public/ path of the real scan */
+  photo: string;
+  /** width / height of the scan */
+  aspect: number;
+  /** when the print lands */
+  at: number;
+  source?: string;
+  marks: ArchiveDocumentMark[];
+};
+
 export type ArchiveDossierPerson = {name: string; photo: string; at: number; /** red X drawn over it at this time */ cross?: number};
 export type ArchiveDossier =
   | {kind: 'title'; photo: string; title: string; at: number; subtitle?: string; subtitleAt?: number; side?: 'left' | 'right'}
@@ -143,6 +162,8 @@ export type ArchiveScene = {
   person?: ArchivePerson;
   /** dossier card: charcoal, halftone portraits, crimson title bar (Dossier.tsx); times are seconds from the scene start */
   dossier?: ArchiveDossier;
+  /** real evidence document on graph paper, the camera moves to each highlighted passage (DocumentCard.tsx) */
+  document?: ArchiveDocument;
   /** full-screen statistic reveal (accent 'stat') */
   stat?: {
     value: string;
