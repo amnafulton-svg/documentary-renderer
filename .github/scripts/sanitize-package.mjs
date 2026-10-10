@@ -67,7 +67,24 @@ for (const scene of data.scenes) {
       }
     }
   }
-  if ((isMapScene || isChartScene || isPersonScene) && !scene.image) {
+  // dossier cards draw their own black-and-white prints on a charcoal ground; every photo must be in the package
+  const d = scene.dossier;
+  const isDossierScene = Boolean(d && typeof d.kind === "string");
+  if (isDossierScene) {
+    const photos = [d.photo, ...(Array.isArray(d.people) ? d.people.map((p) => p.photo) : []), d.heroSwap?.photo]
+      .filter((x) => x !== undefined);
+    for (const ph of photos) {
+      if (!validLocalAsset(String(ph || ""), imageExts)) {
+        throw new Error(`Scene ${scene.index || "?"} dossier card has a missing or invalid photo: ${ph || ""}`);
+      }
+    }
+  }
+  // document cards draw a real scan as a print on graph paper; the scan must be in the package
+  const isDocumentScene = Boolean(scene.document && typeof scene.document.photo === "string");
+  if (isDocumentScene && !validLocalAsset(String(scene.document.photo || ""), imageExts)) {
+    throw new Error(`Scene ${scene.index || "?"} document card has a missing or invalid scan: ${scene.document.photo || ""}`);
+  }
+  if ((isMapScene || isChartScene || isPersonScene || isDossierScene || isDocumentScene) && !scene.image) {
     // ok
   } else if (!validLocalAsset(String(scene.image || ""), imageExts)) {
     throw new Error(`Scene ${scene.index || "?"} has a missing or invalid image: ${scene.image || ""}`);
