@@ -31,7 +31,7 @@ import {NameTag, QuoteOverlay, TimelineBoard, YearBadge} from './MediciTemplates
 import {FilmBurnOverlay, filmBurnNumber, filmBurnTiming} from './FilmBurn';
 import {ACCENT, ON_ACCENT} from './Palette';
 import {CRTDocumentaryLook} from './CRTDocumentaryLook';
-import {FilmGrain, GradeDefs, lookFilter, PaperBackdrop, ParallaxStill, printEnter, PrintFace, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
+import {BackdropCtx, FilmGrain, GradeDefs, lookFilter, PaperBackdrop, ParallaxStill, printEnter, PrintFace, SCAN_TALL, SCAN_WIDE, ScanPrint} from './Look';
 
 type GeoPoint = [longitude: number, latitude: number];
 
@@ -684,12 +684,14 @@ const ArchiveSceneFrame = ({
   // every print slides in from its own side (top, bottom, left, right in turn)
   const enter = onPrint ? printEnter(scene.index + shotIndex + 1, frame - segStart, fps) : undefined;
 
+  const board = Boolean(scene.board && framed && scene.image);
   return (
+    <BackdropCtx.Provider value={{kind: scene.backdrop, image: scene.backdropImage}}>
     <AbsoluteFill style={{...styles.scene, opacity: fade}}>
       <CrtWrap on={crtOn && !onPrint} intensity={crtIntensity}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
-        style={scene.video || framed || parallax || scene.person || scene.dossier || scene.document || scene.timeline ? undefined : styles.imageWrap}
+        style={scene.video || framed || parallax || scene.travel || scene.person || scene.dossier || scene.document || scene.timeline ? undefined : styles.imageWrap}
       >
         {scene.timeline ? (
           <TimelineBoard from={scene.timeline.from} to={scene.timeline.to} src={scene.timeline.photo}
@@ -703,6 +705,16 @@ const ArchiveSceneFrame = ({
               style={{...styles.image, filter: look(scene.tone)}}
             />
           </FilmGate>
+        ) : board ? (
+          <BoardPrints
+            items={[{src: scene.image as string, aspect: scene.aspect, at: scene.start}, ...shots.filter((m) => m.image).map((m) => ({src: m.image as string, aspect: m.aspect, at: m.at}))]}
+            sceneStart={scene.start}
+            frame={frame}
+            progress={progress}
+            filter={look(scene.tone)}
+            crt={crtOn ? crtIntensity : null}
+            seed={scene.index}
+          />
         ) : scene.image && shotIndex >= 0 && (shots[shotIndex].image || shots[shotIndex].video) ? (
           <ShotMedia
             shot={shots[shotIndex]}
@@ -737,6 +749,8 @@ const ArchiveSceneFrame = ({
             crt={printCrt}
             enter={enter}
           />
+        ) : scene.image && scene.travel && scene.aspect ? (
+          <TravelStill src={staticFile(scene.image)} aspect={scene.aspect} dir={scene.travel} progress={ownProgress} filter={look(scene.tone)} />
         ) : scene.image ? (
           <Img
             src={staticFile(scene.image)}
@@ -827,6 +841,64 @@ const ArchiveSceneFrame = ({
           {scene.index === 1 ? <IntroPrintReveal frame={frame} /> : null}
         </>
       ) : null}
+    </AbsoluteFill>
+    </BackdropCtx.Provider>
+  );
+};
+
+// variety look (opt-in): one continuous camera move across a full-screen painting (wide ones show their whole width once)
+const TravelStill = ({src, aspect, dir, progress, filter}: {src: string; aspect: number; dir: 'left' | 'right'; progress: number; filter: string}) => {
+  const w = Math.max(1150 * aspect, 1920 * 1.28);
+  const h = w / aspect;
+  const travel = w - 1920;
+  const t = interpolate(progress, [0, 1], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  const x = dir === 'left' ? -e * travel : -(1 - e) * travel;
+  const y = -(h - 1080) * (0.4 + 0.15 * e);
+  return (
+    <AbsoluteFill style={{overflow: 'hidden', backgroundColor: '#000'}}>
+      <Img src={src} style={{position: 'absolute', left: 0, top: 0, width: w, height: h, maxWidth: 'none', transform: `translate(${x}px, ${y}px)`, filter}} />
+    </AbsoluteFill>
+  );
+};
+
+// variety look (opt-in): evidence board: each print of the scene lands on the backdrop at its cut and stays; the camera eases in
+const BOARD_SPOTS: Record<number, Array<[number, number, number]>> = {
+  1: [[0, 0, -1.5]],
+  2: [[-330, -30, -3], [340, 40, 2.5]],
+  3: [[-470, -90, -3.5], [430, -110, 3], [0, 170, -1]],
+};
+const BoardPrints = ({items, sceneStart, frame, progress, filter, crt, seed}: {
+  items: Array<{src: string; aspect?: number; at: number}>;
+  sceneStart: number;
+  frame: number;
+  progress: number;
+  filter: string;
+  crt: number | null;
+  seed: number;
+}) => {
+  const {fps} = useVideoConfig();
+  const n = Math.min(3, items.length);
+  const spots = BOARD_SPOTS[n];
+  const base = n === 1 ? 820 : n === 2 ? 640 : 520;
+  const push = interpolate(progress, [0, 1], [1, 1.06], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  return (
+    <AbsoluteFill>
+      <PaperBackdrop />
+      <AbsoluteFill style={{transform: `scale(${push})`}}>
+        {items.slice(0, 3).map((it, i) => {
+          const at = Math.round((it.at - sceneStart) * fps);
+          if (frame < at) return null;
+          const a = it.aspect || 1.33;
+          const size = a >= 1 ? {width: Math.round(base * Math.min(a, 1.6)), height: Math.round(base * Math.min(a, 1.6) / a)} : {height: base, width: Math.round(base * a)};
+          const [x, y, r] = spots[i];
+          return (
+            <AbsoluteFill key={i} style={{alignItems: 'center', justifyContent: 'center', transform: `${printEnter(seed + i + 1, frame - at, fps)} translate(${x}px, ${y}px) rotate(${r}deg)`}}>
+              <PrintFace src={staticFile(it.src)} width={size.width} height={size.height} filter={filter} crt={crt} />
+            </AbsoluteFill>
+          );
+        })}
+      </AbsoluteFill>
     </AbsoluteFill>
   );
 };

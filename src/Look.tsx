@@ -1,5 +1,5 @@
 import {AbsoluteFill, Img, interpolate, Loop, OffthreadVideo, staticFile, useCurrentFrame, useVideoConfig} from 'remotion';
-import {useLayoutEffect, useRef} from 'react';
+import {createContext, useContext, useLayoutEffect, useRef} from 'react';
 import type {CSSProperties} from 'react';
 import {CRTDocumentaryLook} from './CRTDocumentaryLook';
 
@@ -174,8 +174,34 @@ export const printEnter = (key: number, framesIn: number, fps: number) => {
 };
 const PAPER_SECONDS = 59;
 
+export const BackdropCtx = createContext<{kind?: string; image?: string}>({});
+
+// the producer's sand-coloured textured paper (2026-10-11), in place of the dark wood desk
+const DeskBackdrop = () => (
+  <AbsoluteFill style={{backgroundColor: '#e9cfb0'}}>
+    <Img src={staticFile('backdrops/sand.jpg')} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+  </AbsoluteFill>
+);
+
+const MapBackdrop = ({src}: {src: string}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const k = frame / (fps * 30);
+  return (
+    <AbsoluteFill style={{backgroundColor: '#20170e', overflow: 'hidden'}}>
+      <Img src={staticFile(src)} style={{width: '100%', height: '100%', objectFit: 'cover',
+        transform: `scale(${1.12 + 0.05 * k}) translate(${-12 * k}px, ${-6 * k}px)`,
+        filter: 'sepia(0.55) saturate(0.8) brightness(0.5) contrast(1.05) blur(1.2px)'}} />
+      <AbsoluteFill style={{boxShadow: 'inset 0 0 240px 80px rgba(0,0,0,0.8)'}} />
+    </AbsoluteFill>
+  );
+};
+
 export const PaperBackdrop = () => {
   const {fps} = useVideoConfig();
+  const bd = useContext(BackdropCtx);
+  if (bd.kind === 'desk') return <DeskBackdrop />;
+  if (bd.kind === 'map' && bd.image) return <MapBackdrop src={bd.image} />;
   return (
     <AbsoluteFill style={{backgroundColor: '#f7f7f5'}}>
       <Loop durationInFrames={Math.round(PAPER_SECONDS * fps)}>

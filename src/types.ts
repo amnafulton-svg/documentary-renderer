@@ -150,6 +150,15 @@ export type ArchiveScene = {
   // real photos render as a framed print over a soft copy of themselves instead of filling the frame
   fit?: 'cover' | 'contain';
   aspect?: number;
+  /** what a print lies on: white graph paper (default), a dark desk, or an old map (backdropImage) */
+  backdrop?: 'paper' | 'desk' | 'map';
+  backdropImage?: string;
+  /** full-screen painting: the camera travels once across it (needs aspect) */
+  travel?: 'left' | 'right';
+  /** the prints of this scene (still + photo cutaways) pile up on the backdrop instead of replacing each other */
+  board?: boolean;
+  /** a real photo full screen on purpose (not a framed print); check accepts it */
+  full?: boolean;
   // per-picture tone correction towards the house look: [brightness, contrast, saturate] (look.py)
   tone?: [number, number, number];
   /** editor's transition into this scene: a real film burn screened over the cut (FilmBurn.tsx); n = clip 1/4/5/6/11/12/13 */
