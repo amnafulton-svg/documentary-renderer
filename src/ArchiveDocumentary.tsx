@@ -16,7 +16,7 @@ import {feature} from 'topojson-client';
 import worldAtlas from 'world-atlas/countries-110m.json';
 import type {CSSProperties, ReactNode} from 'react';
 import type {FeatureCollection, Geometry} from 'geojson';
-import type {ArchiveCaption, ArchiveData, ArchiveScene, ArchiveShot, HistoricalMapSpec, HistoricalRoute} from './types';
+import type {ArchiveCaption, ArchiveData, ArchiveOverlay, ArchiveScene, ArchiveShot, HistoricalMapSpec, HistoricalRoute} from './types';
 import {HistoricalMap} from './HistoricalMap';
 import {DocumentaryMap} from './DocumentaryMap';
 import {FlyoverMap} from './FlyoverMap';
@@ -27,6 +27,7 @@ import {ChartBackdrop, DataChart} from './DataChart';
 import {PersonCard} from './PersonCard';
 import {DossierCard} from './Dossier';
 import {DocumentCard} from './DocumentCard';
+import {NameTag, QuoteOverlay, TimelineBoard, YearBadge} from './MediciTemplates';
 import {FilmBurnOverlay, filmBurnNumber, filmBurnTiming} from './FilmBurn';
 import {ACCENT, ON_ACCENT} from './Palette';
 import {CRTDocumentaryLook} from './CRTDocumentaryLook';
@@ -317,7 +318,7 @@ const MAX_OVERLAP = 14; // every footage clip carries at least ~0.5s of spare ta
 
 // maps and full-screen charts dissolve in and out
 const isMapScene = (scene: ArchiveScene) =>
-  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person || !!scene.dossier || !!scene.document) && !scene.video && !scene.image;
+  (scene.graphic === 'kinetic_map' || !!scene.chart || !!scene.person || !!scene.dossier || !!scene.document || !!scene.timeline) && !scene.video && (!scene.image || !!scene.timeline);
 
 const transitionInto = (prev: ArchiveScene | undefined, scene: ArchiveScene, fps: number): Transition => {
   if (!prev) return {kind: 'open', frames: Math.round(fps * 0.55)};
@@ -387,6 +388,22 @@ const ColdOpenFade = ({len}: {len: number}) => {
   const {fps} = useVideoConfig();
   const o = interpolate(frame, [len - Math.round(fps * 0.35), len], [0, 1], clampX);
   return <AbsoluteFill style={{backgroundColor: '#000', opacity: o, pointerEvents: 'none'}} />;
+};
+
+// name tag / year badge / quote card typed over the picture (Medici reference study, 2026-10-11); fades out in its
+// last 0.25 s so it never hard-cuts away mid-picture
+const OverlayItem = ({overlay: o}: {overlay: ArchiveOverlay}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const len = (o.end - o.start) * fps;
+  const out = interpolate(frame, [len - 0.25 * fps, len], [1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  return (
+    <AbsoluteFill style={{opacity: out, pointerEvents: 'none'}}>
+      {o.kind === 'tag' ? <NameTag lines={o.lines} at={0} frame={frame} fps={fps} />
+        : o.kind === 'year' ? <YearBadge text={o.text} at={0} frame={frame} fps={fps} />
+        : <QuoteOverlay text={o.text} highlight={o.highlight} at={o.at} highlightAt={o.highlightAt} frame={frame} fps={fps} />}
+    </AbsoluteFill>
+  );
 };
 
 const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}) => {
@@ -469,6 +486,14 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
               </Sequence>
             );
           })
+        : null}
+      {showArchiveOverlay
+        ? (data.overlays ?? []).map((o, i) => (
+            <Sequence key={`ov-${i}`} from={Math.floor(o.start * fps)} durationInFrames={Math.max(1, Math.ceil((o.end - o.start) * fps))}
+              name={`Overlay ${o.kind}`}>
+              <OverlayItem overlay={o} />
+            </Sequence>
+          ))
         : null}
       {houseLook ? <FilmGrain strength={0.16} /> : null}
       {/* in the cold open, only the excerpt's own lines: the next sentence must not flash up during the fade */}
@@ -649,7 +674,7 @@ const ArchiveSceneFrame = ({
   // CRT: 'film' = archive footage only (a clip scene or a footage cutaway); 'all' = every picture (film, real
   // photos, AI images) in place of the house look. Maps, person and dossier cards and charts stay clean.
   const onFilm = Boolean(scene.video || (shotIndex >= 0 && shots[shotIndex].video));
-  const onPicture = Boolean(scene.video || scene.image) && !scene.person && !scene.dossier && !scene.document && !scene.chart;
+  const onPicture = Boolean(scene.video || scene.image) && !scene.person && !scene.dossier && !scene.document && !scene.chart && !scene.timeline;
   const crtOn = crt === 'all' ? onPicture : crt === 'film' && onFilm;
   // a print on paper takes the CRT on the photo only, so the white paper stays clean
   const onPrint = shotIndex >= 0
@@ -664,9 +689,13 @@ const ArchiveSceneFrame = ({
       <CrtWrap on={crtOn && !onPrint} intensity={crtIntensity}>
       <AbsoluteFill
         // footage and framed prints play at their true size: no bleed box, no Ken Burns zoom
-        style={scene.video || framed || parallax || scene.person || scene.dossier || scene.document ? undefined : styles.imageWrap}
+        style={scene.video || framed || parallax || scene.person || scene.dossier || scene.document || scene.timeline ? undefined : styles.imageWrap}
       >
-        {scene.video ? (
+        {scene.timeline ? (
+          <TimelineBoard from={scene.timeline.from} to={scene.timeline.to} src={scene.timeline.photo}
+            figure={scene.timeline.figure} at={scene.timeline.at} figureAt={scene.timeline.figureAt}
+            frame={frame} fps={fps} duration={durationInFrames} />
+        ) : scene.video ? (
           <FilmGate on={filmGate}>
             <OffthreadVideo
               src={staticFile(scene.video)}

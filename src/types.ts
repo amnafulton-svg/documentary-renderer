@@ -164,6 +164,9 @@ export type ArchiveScene = {
   dossier?: ArchiveDossier;
   /** real evidence document on graph paper, the camera moves to each highlighted passage (DocumentCard.tsx) */
   document?: ArchiveDocument;
+  /** timeline board on graph paper: "from -> to", a picture, the period's figure (MediciTemplates.tsx);
+   *  times are seconds from the scene start; photo is also the scene's image */
+  timeline?: {from: string; to: string; figure: string; photo: string; at: number; figureAt: number};
   /** full-screen statistic reveal (accent 'stat') */
   stat?: {
     value: string;
@@ -205,6 +208,12 @@ export type ArchiveCaption = {
   end: number;
   text: string;
 };
+
+/** typed overlays over whatever is on screen (MediciTemplates.tsx); start/end in seconds of the whole film */
+export type ArchiveOverlay =
+  | {kind: 'tag'; start: number; end: number; lines: string[]}
+  | {kind: 'year'; start: number; end: number; text: string}
+  | {kind: 'quote'; start: number; end: number; text: string; highlight?: string; highlightAt?: number; at: number};
 
 export type ArchiveData = {
   title: string;
@@ -254,6 +263,7 @@ export type ArchiveData = {
     searchQuery?: string;
   }>;
   scenes: ArchiveScene[];
+  overlays?: ArchiveOverlay[];
 };
 
 export type ChartFormat = {prefix?: string; suffix?: string; decimals?: number; axisDecimals?: number};
