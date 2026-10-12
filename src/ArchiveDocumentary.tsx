@@ -551,7 +551,7 @@ const SoundEffects = ({data, transitions}: {data: ArchiveData; transitions: Tran
       ) : null}
       {printSlides.map((slide) => (
         <Sequence key={slide.key} from={Math.max(0, slide.frame)} durationInFrames={Math.round(fps * 1.2)}>
-          <Audio src={resolveAudioSrc(sfx.paperSlide as string)} volume={0.08} />
+          <Audio src={resolveAudioSrc(sfx.paperSlide as string)} volume={0.04} />
         </Sequence>
       ))}
       {data.scenes.map((scene) => {
