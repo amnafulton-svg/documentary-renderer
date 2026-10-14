@@ -7,7 +7,7 @@ const output = process.argv[2] || "out/mixed-audio.m4a";
 const publicDir = "public";
 const data = JSON.parse(readFileSync(join(publicDir, "archive.json"), "utf8"));
 const duration = Math.max(0.1, Number(data.duration || 0.1));
-const sfx = data.sfx ?? {};
+const sfx = {...(data.sfx ?? {}), paperSlide: undefined}; // no paper-slide sound anywhere (viewer complaints, user 2026-10-14)
 const cacheDir = "audio-mix-assets";
 
 const isUrl = (src) => /^https?:\/\//i.test(src);
