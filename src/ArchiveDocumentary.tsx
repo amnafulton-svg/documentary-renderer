@@ -506,7 +506,8 @@ const FilmBody = ({data, window}: {data: ArchiveData; window?: [number, number]}
 
 const SoundEffects = ({data, transitions}: {data: ArchiveData; transitions: Transition[]}) => {
   const {fps} = useVideoConfig();
-  const sfx = data.sfx ?? {};
+  // no paper-slide sound anywhere (viewers complained, user 2026-10-14): prints, document cards and accents slide in silently
+  const sfx = {...(data.sfx ?? {}), paperSlide: undefined as string | undefined};
   // a paper slide under every print that slides onto the graph paper (scene prints and print cutaways),
   // timed to the moment the print starts moving in
   const printSlides: {key: string; frame: number}[] = [];
